@@ -46,7 +46,7 @@ inscriptis==2.5.3
 ipython==8.12.3
 ir-datasets==0.5.9
 jedi==0.19.2
-jinja2==3.1.5
+jinja2==3.1.6
 joblib==1.4.2
 jsonpatch==1.33
 jsonpointer==3.0.0
