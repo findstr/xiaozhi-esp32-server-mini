@@ -1,0 +1,8 @@
+---@class session
+---@field uid string
+---@field memory memory
+---@field new fun(uid: string): session
+---@field start fun(self:session)
+---@field write fun(self:session, message:string)
+---@field stop fun(self:session)
+---@field error fun(self:session, err:string)

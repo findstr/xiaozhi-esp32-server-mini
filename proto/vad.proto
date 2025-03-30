@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package edge_mind;
+
+service SileroVad {
+  rpc Feed(stream SileroVadFeedReq) returns (stream SileroVadFeedRes);
+}
+
+message Audio {
+	repeated bytes frames = 1;
+}
+
+message SileroVadFeedReq {
+  uint32 sampling_rate = 1; // 采样率
+  float min_silence_duration = 2; // 最小静默时间(秒)
+  float threshold = 3;      // 阈值
+  bytes opus_audio_frame = 4;
+}
+
+message SileroVadFeedRes {
+  bool is_finished = 1;
+  bytes audio = 2;
+}

@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+.env
+.venv
+db/
+venv/
+ENV/
+dist/
+build/
+*.egg-info/
+*.egg
+
+# Protobuf generated files
+edgemind/*_pb2.py
+edgemind/*_pb2_grpc.py
+
+# Logs and databases
+*.log
+*.sqlite
+logs/
+
+# IDE
+.vscode/
+.idea/
+
+# Local overrides
+override.yaml
+local.yaml
+
+# Temp files
+.temp/
+temp/
+*.tmp
+*.bin
+*.pcm
+backend/klib/blogs/*
+
+# Test artifacts
+.coverage
+htmlcov/
+.pytest_cache/
+
+my_conf.lua
+
+*.code-workspace
+# framework
+silly
