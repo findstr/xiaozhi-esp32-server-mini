@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package edge_mind;
+
+service Opus {
+  rpc WrapPCM(stream OpusWrapPCMReq) returns (stream OpusWrapPCMRes);
+}
+
+message OpusWrapPCMReq {
+	bool is_last = 1;
+	bytes pcm_data = 2;
+}
+
+message OpusWrapPCMRes {
+	repeated bytes opus_datas = 1;
+	string error = 2;
+}
