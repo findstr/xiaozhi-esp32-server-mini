@@ -60,6 +60,10 @@ local M = {
 			auth = "123456",
 		},
 	},
+	-- 提供的工具
+	tools = {
+		"weather",
+	},
 }
 
 return M

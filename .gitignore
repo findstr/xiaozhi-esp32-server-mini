@@ -43,8 +43,11 @@ backend/klib/blogs/*
 htmlcov/
 .pytest_cache/
 
-my_conf.lua
+myconf.lua
 
 *.code-workspace
 # framework
 silly
+backend/deps/
+!backend/deps/init.sh
+luaclib/

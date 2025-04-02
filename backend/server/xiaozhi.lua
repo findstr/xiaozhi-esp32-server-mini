@@ -245,7 +245,7 @@ local function vad_detect(session, dat)
 		logger.error("[xiaozhi] asr error", err)
 		return false, err
 	end
-	logger.infof("[xiaozhi] vad str:%v", txt)
+	logger.infof("[xiaozhi] vad str:%s", txt)
 	session:sendjson({type = "stt", text = txt, session_id = session.session_id})
 	session.state = STATE_SPEAKING
 	chat(session, txt)

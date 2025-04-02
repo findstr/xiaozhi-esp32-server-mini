@@ -3,7 +3,7 @@ local logger = require "core.logger"
 local json = require "core.json"
 local http = require "core.http"
 local helper = require "core.http.helper"
-local chat = require "agent.chat"
+local agent = require "agent.chat"
 local memory = require "memory"
 local conf = require "conf"
 
@@ -73,9 +73,9 @@ router["/chat"] = function(stream)
 	end
 	--TODO: hard uid = 1
 	local s = wsession.new(1, stream)
-	local ok, err = core.pcall(chat, s, msg)
+	local ok, err = core.pcall(agent, s, msg)
 	if not ok then
-		logger.errorf("chat uid:%v failed: %v", 1, err)
+		logger.errorf("chat uid:%s failed: %s", 1, err)
 	end
 end
 

@@ -30,7 +30,7 @@ local function embedding(txt)
 	end
 	local result = json.decode(res.body)
 	if not result then
-		logger.errorf("[embedding.openai] failed to decode result: %v", res.body)
+		logger.errorf("[embedding.openai] failed to decode result: %s", res.body)
 		return nil, "failed to decode result"
 	end
 	if single then

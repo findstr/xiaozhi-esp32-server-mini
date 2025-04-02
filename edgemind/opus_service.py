@@ -14,6 +14,25 @@ class OpusService(opus_pb2_grpc.OpusServicer):
         frame_duration = 60  # 60ms per frame
         self.frame_size = int(16000 * frame_duration / 1000)  # 960 samples/frame
         self.encoder = opuslib_next.Encoder(16000, 1, opuslib_next.APPLICATION_AUDIO)
+        self.test()
+
+    def test(self):
+        with open("all.pcm", "rb") as f:
+            pcm_data = f.read()
+
+        # 调用fromPCM处理完整的PCM数据（模拟最后一帧）
+        opus_datas, left_data = self.fromPCM(pcm_data, is_last=True)
+        print("First 5 opus frames:")
+        for i, data in enumerate(opus_datas[:5]):
+            hex_bytes = ' '.join(f"{b:02x}" for b in data)
+            print(f"Frame {i}: len:{len(opus_datas[i])} hex: {hex_bytes}")
+
+        print("\nLast 5 opus frames:")
+        start_idx = max(0, len(opus_datas)-5)
+        for i in range(start_idx, len(opus_datas)):
+            hex_bytes = ' '.join(f"{b:02x}" for b in opus_datas[i])
+            print(f"Frame {i}: len:{len(opus_datas[i])} hex: {hex_bytes}")
+
 
     def fromPCM(self, pcm_data, is_last):
         opus_datas = []

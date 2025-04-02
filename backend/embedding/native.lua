@@ -40,7 +40,7 @@ local function embedding(txt)
 	end
 	local res, err = client:Encode(docs)
 	if not res then
-		logger.errorf("[embedding.native] embedding failed: %v", err)
+		logger.errorf("[embedding.native] embedding failed: %s", err)
 		return nil, err
 	end
 	if single then

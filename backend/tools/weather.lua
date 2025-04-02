@@ -1,3 +1,4 @@
+local tools = require "tools"
 local function weather(args)
 	return {
 		city = args.city,
@@ -8,4 +9,22 @@ local function weather(args)
 	}
 end
 
-return weather
+tools.register {
+	{
+		type = "function",
+		exec = weather,
+		["function"] = {
+			name = "weather",
+			description = "天气查询, 如果不提供城市名称，则默认返回当前城市天气",
+			parameters = {
+				type = "object",
+				properties = {
+					city = {
+						type = "string",
+						description = "城市名称"
+					}
+				},
+			},
+		},
+	},
+}
