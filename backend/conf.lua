@@ -1,3 +1,7 @@
+local x = require "myconf"
+return x
+
+--[[
 local M = {
 	http_listen = "127.0.0.1:8081",			-- WEB前端访问的地址
 	xiaozhi_listen = "127.0.0.1:8080",		-- 小智访问的地址
@@ -15,7 +19,6 @@ local M = {
 			secret_key = "----------------------------------",	-- 腾讯ASR的KEY
 		}
 	},
-
 	tts = {
 		use = "azure",
 		azure = {
@@ -23,7 +26,6 @@ local M = {
 			api_key = "---------------------",			-- API密钥
 		}
 	},
-
 	-- 嵌入模型
 	embedding = {
 		use = "openai", -- 这里填openai, 默认不开启本地嵌入模型，因为本地嵌入模型需要大量的内存
@@ -60,6 +62,18 @@ local M = {
 			auth = "123456",
 		},
 	},
+	location = {	--定位服务
+		use = "tencent",
+		tencent = {
+			key = "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF",
+			secret_key = "abcdefghijklmnopqrstuvwxyz",
+		},
+	},
+	-- 提供的工具
+	tools = {
+		"weather",
+	},
 }
 
 return M
+]]

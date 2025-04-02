@@ -15,14 +15,12 @@ local concat = table.concat
 ---@field header boolean
 local M = {}
 
-local req_ms = 0
-local requesting = false
 local mt = {__index = M, __close = function(self)
 	self:close()
 end }
 
 local alpn_protos = {"http/1.1", "h2"}
----@alias llm_name "chat" | "think"
+---@alias llm_name "chat" | "think" | "intent"
 
 ---@param req {
 ---	llm: llm_name,
@@ -34,15 +32,6 @@ local alpn_protos = {"http/1.1", "h2"}
 ---}
 ---@return openai?, string? error
 function M.open(req)
-	while requesting do
-		logger.error("openai requesting")
-		core.sleep(500)
-	end
-	requesting = true
-	local now = time.now()
-	if req_ms + 500 > now then
-		core.sleep(req_ms + 500 - now)
-	end
 	local model_conf = conf.llm[req.llm]
 	if not model_conf then
 		error("model not found: " .. req.llm)
@@ -56,7 +45,7 @@ function M.open(req)
 		["content-length"] = #txt,
 	}, false, alpn_protos)
 	if not stream then
-		logger.error("openai open failed: %v", err)
+		logger.error("openai open failed: %s", err)
 		return nil, err
 	end
 	if stream.version == "HTTP/2" then
@@ -146,8 +135,6 @@ function M:readsse()
 end
 
 function M:close()
-	req_ms = time.now()
-	requesting = false
 	self.stream:close()
 end
 

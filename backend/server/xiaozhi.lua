@@ -55,6 +55,7 @@ end
 ---@class xiaozhi.session : session
 ---@field memory memory
 ---@field state xiaozhi.state
+---@field remote_addr string
 ---@field sock core.http.websocket
 ---@field session_id string
 ---@field vad_stream vad.stream
@@ -73,6 +74,7 @@ function xsession.new(uid, sock)
 		memory = memory.new(uid),
 		state = STATE_IDLE,
 		sock = sock,
+		remote_addr = sock.stream.remote_addr,
 		session_id = false,
 		vad_stream = nil,
 		tts = nil,
@@ -245,7 +247,7 @@ local function vad_detect(session, dat)
 		logger.error("[xiaozhi] asr error", err)
 		return false, err
 	end
-	logger.infof("[xiaozhi] vad str:%v", txt)
+	logger.infof("[xiaozhi] vad str:%s", txt)
 	session:sendjson({type = "stt", text = txt, session_id = session.session_id})
 	session.state = STATE_SPEAKING
 	chat(session, txt)

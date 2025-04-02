@@ -68,7 +68,7 @@ local function create_index()
 	-- check index if exists
 	local ok, res = db:call("FT.INFO", memory_index_name)
 	if ok then
-		logger.infof("[memory] index %v already exists", memory_index_name)
+		logger.infof("[memory] index %s already exists", memory_index_name)
 		return true
 	end
 	-- create vector index
@@ -82,7 +82,7 @@ local function create_index()
 			"DIM", "1024",
 			"DISTANCE_METRIC", "COSINE")
 	if not ok then
-		logger.errorf("[memory] create index failed: %v", err)
+		logger.errorf("[memory] create index failed: %s", err)
 		return false
 	end
 	logger.infof("[memory] create index success")
@@ -92,7 +92,7 @@ end
 local function retrieval(uid, msg)
 	local vector, err = embedding(msg)
 	if not vector then
-		logger.errorf("[memory] uid:%v embedding failed: %v", uid, err)
+		logger.errorf("[memory] uid:%s embedding failed: %s", uid, err)
 		return nil, err
 	end
 	local ok, res = db:call("FT.SEARCH",
@@ -108,7 +108,7 @@ local function retrieval(uid, msg)
 		"DIALECT", "2"
 	)
 	if not ok then
-		logger.errorf("[memory] uid:%v search failed: %v", uid, res)
+		logger.errorf("[memory] uid:%s search failed: %s", uid, res)
 		return nil, err
 	end
 	if not res or #res < 2 then
@@ -194,12 +194,12 @@ local function summarize(uid, summary, working)
 		llm = "think",
 	}
 	if not ai then
-		logger.errorf("[memory] update_summary uid:%v failed: %v", uid, err)
+		logger.errorf("[memory] update_summary uid:%s failed: %s", uid, err)
 		return ""
 	end
 	local response, err = ai:read()
 	if not response then
-		logger.errorf("[memory] update_summary uid:%v failed: %v", uid, err)
+		logger.errorf("[memory] update_summary uid:%s failed: %s", uid, err)
 		return ""
 	end
 	return response.choices[1].message.content
@@ -241,12 +241,12 @@ local function update_profile(profile, working)
 		max_tokens = 150 -- 限制输出长度，只需要画像部分
 	}
 	if not ai then
-		logger.errorf("[memory] update_profile failed: %v", err)
+		logger.errorf("[memory] update_profile failed: %s", err)
 		return
 	end
 	local response, err = ai:read()
 	if not response then
-		logger.errorf("[memory] update_profile failed: %v", err)
+		logger.errorf("[memory] update_profile failed: %s", err)
 		return
 	end
 	local content = response.choices[1].message.content
@@ -275,7 +275,7 @@ local function background_thinking()
 	local profile = update_profile(mem.profile, working)
 	if profile then
 		mem.profile = profile
-		logger.debugf("[memory] update_profile uid:%v profile: %v", mem.uid, profile)
+		logger.debugf("[memory] update_profile uid:%s profile: %s", mem.uid, profile)
 	end
 	if #working > keep_converse_count then
 		local tmp = {}
@@ -286,7 +286,7 @@ local function background_thinking()
 		local context, err = compress(working)
 		local summary = summarize(mem.uid, mem.summary, working)
 		if not context then
-			logger.errorf("[memory] compress_messages uid:%v failed: %v", mem.uid, err)
+			logger.errorf("[memory] compress_messages uid:%s failed: %s", mem.uid, err)
 		else
 			local t = mem.compressed
 			t[#t+1] = context
@@ -306,12 +306,12 @@ local function background_thinking()
 		end
 		local ok, err = db:call("JSON.SET", format(dbk_user, mem.uid), "$", json.encode(mem))
 		if not ok then
-			logger.errorf("[memory] update_profile uid:%v failed: %v", mem.uid, err)
+			logger.errorf("[memory] update_profile uid:%s failed: %s", mem.uid, err)
 		end
 		local summary = mem.summary
 		local vector, err = embedding(summary)
 		if not vector then
-			logger.errorf("[memory] close uid:%v failed: %v", mem.uid, err)
+			logger.errorf("[memory] close uid:%s failed: %s", mem.uid, err)
 			return
 		end
 		local session_id = dbk_mem_id + 1
@@ -327,7 +327,7 @@ local function background_thinking()
 			{"EXPIRE", dbk, 60 * 60 * 24 * 30}
 		}
 		if not ok then
-			logger.errorf("[memory] close uid:%v failed: %v", mem.uid, err)
+			logger.errorf("[memory] close uid:%s failed: %s", mem.uid, err)
 		end
 		if now > mem.update_time then -- 超过10分钟，已经不需要保留上下文了
 			mem.compressed = {}
@@ -365,7 +365,7 @@ function M:retrieve(tbl, msg)
 			content = txt,
 		}
 	else
-		logger.errorf("[memory] retrieval uid:%v failed: %v", self.uid, err)
+		logger.errorf("[memory] retrieval uid:%s failed: %s", self.uid, err)
 	end
 	-- 2. 用户画像信息
 	local profile = self.profile

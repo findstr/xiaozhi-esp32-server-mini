@@ -41,7 +41,7 @@ end}
 function M.new()
 	local stream, err = client.WrapPCM()
 	if not stream then
-		logger.errorf("[tts] failed to wrap grpc: %v", err)
+		logger.errorf("[tts] failed to wrap grpc: %s", err)
 		return nil, err
 	end
 	return setmetatable({
@@ -57,7 +57,7 @@ function M:txt_to_opus(txt, is_last)
 	local data, err = tts(txt)
 	self.last_tts_time = time.now()
 	if not data then
-		logger.errorf("[tts] close failed to tts: %v", err)
+		logger.errorf("[tts] close failed to tts: %s", err)
 		return nil
 	end
 	local stream = self.stream
@@ -68,7 +68,7 @@ function M:txt_to_opus(txt, is_last)
 	local opus_datas
 	local res, err = stream:read()
 	if not res then
-		logger.errorf("[tts] failed to read from grpc: %v", err)
+		logger.errorf("[tts] failed to read from grpc: %s", err)
 	else
 		opus_datas = res.opus_datas
 	end

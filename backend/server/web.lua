@@ -3,7 +3,7 @@ local logger = require "core.logger"
 local json = require "core.json"
 local http = require "core.http"
 local helper = require "core.http.helper"
-local chat = require "agent.chat"
+local agent = require "agent.chat"
 local memory = require "memory"
 local conf = require "conf"
 
@@ -13,8 +13,9 @@ local setmetatable = setmetatable
 ---@field private stream core.http.h1stream
 local wsession = {}
 local ctx_mt = {__index = wsession}
-function wsession.new(uid, stream)
+function wsession.new(uid, stream, addr)
 	return setmetatable({
+		remote_addr = addr,
 		stream = stream,
 		buf = {},
 		memory = memory.new(uid),
@@ -72,10 +73,10 @@ router["/chat"] = function(stream)
 		return
 	end
 	--TODO: hard uid = 1
-	local s = wsession.new(1, stream)
-	local ok, err = core.pcall(chat, s, msg)
+	local s = wsession.new(1, stream, stream.remote_addr)
+	local ok, err = core.pcall(agent, s, msg)
 	if not ok then
-		logger.errorf("chat uid:%v failed: %v", 1, err)
+		logger.errorf("chat uid:%s failed: %s", 1, err)
 	end
 end
 
