@@ -1,5 +1,19 @@
 import axios from 'axios';
 
+
+// 存储 session_id 的变量
+let sessionId = null;
+
+// 生成 session_id 的函数（也可以在 App.vue 生成后设置）
+function generateSessionId() {
+  if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+sessionId = generateSessionId();
+document.cookie = `session_id=${sessionId}`;
 // 这里应该使用相对路径，让请求通过代理
 const API_URL = '/api';
 

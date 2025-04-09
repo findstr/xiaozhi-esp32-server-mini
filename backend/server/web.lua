@@ -60,6 +60,11 @@ end
 
 local router = {}
 router["/chat"] = function(stream)
+	local session_id
+	local cookie = stream.header["cookie"]
+	if cookie then
+		session_id = cookie:match("session_id=([^;]+)")
+	end
 	local msg = stream.query.message
 	msg = helper.urldecode(msg)
 	if not msg then
