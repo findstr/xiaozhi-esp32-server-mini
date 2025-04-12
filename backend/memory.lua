@@ -367,7 +367,6 @@ function M:retrieve(tbl, msg)
 end
 
 function M:add(q, a)
-	self.modify_version = self.modify_version + 1
 	local working = self.working
 	working[#working + 1] = {
 		role = "user",
