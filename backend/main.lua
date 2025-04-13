@@ -1,10 +1,28 @@
-local dns = require "core.dns"
 local logger = require "core.logger"
+local dns = require "core.dns"
 local conf = require "conf"
-dns.server("8.8.8.8:53")
-local ip = dns.lookup(conf.vector_db.redis.addr, dns.A)
-logger.infof("redis ip: %s", ip)
-conf.vector_db.redis.addr = ip
+--- load config
+do
+	local function merge_conf(base, override)
+	    for k, v in pairs(override) do
+	        if type(v) == "table" and type(base[k]) == "table" then
+	            merge_conf(base[k], v)
+	        else
+	            base[k] = v
+	        end
+	    end
+	end
+	local ok, override_conf = pcall(require, "myconf")
+	if ok then
+		logger.infof("[main] load myconf.lua")
+		merge_conf(conf, override_conf)
+	end
+	dns.server("8.8.8.8:53")
+	local ip = dns.lookup(conf.vector_db.redis.addr, dns.A)
+	logger.infof("[main] redis ip: %s", ip)
+	conf.vector_db.redis.addr = ip
+end
+
 
 local memory = require "memory"
 memory.start()

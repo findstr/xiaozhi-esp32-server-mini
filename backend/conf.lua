@@ -1,11 +1,7 @@
-local x = require "myconf"
-return x
-
---[[
 local M = {
 	http_listen = "127.0.0.1:8081",			-- WEB前端访问的地址
 	xiaozhi_listen = "127.0.0.1:8080",		-- 小智访问的地址
-
+	exit_after_silence_seconds = 60, 		-- 60秒后自动退出
 	vad = {
 		grpc_addr = "127.0.0.1:50051",		-- VAD模型的访问地址
 	},
@@ -76,4 +72,3 @@ local M = {
 }
 
 return M
-]]

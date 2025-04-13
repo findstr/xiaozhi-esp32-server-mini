@@ -1,4 +1,5 @@
 local core = require "core"
+local time = require "core.time"
 local json = require "core.json"
 local logger = require "core.logger"
 local websocket = require "core.websocket"
@@ -74,6 +75,8 @@ end
 ---@field speak_buf {content: string, type: string}[]
 ---@field chat? function(session, string):boolean
 ---@field closed boolean
+---@field silence_start_time integer
+---@
 local xsession = {}
 local xsession_mt = {__index = xsession}
 
@@ -93,6 +96,7 @@ function xsession.new(uid, sock)
 		speak_buf = {},
 		closed = false,
 		chat = nil,
+		silence_start_time = math.maxinteger,
 	}, xsession_mt)
 	core.fork(function()
 		local remove = table.remove
@@ -182,6 +186,7 @@ function router.listen(session, req)
 	if req.state == "start" then
 		session.state = STATE_LISTENING
 		session.vad_stream = vad()
+		session.silence_start_time = time.nowsec()
 		logger.info("xiaozhi", "start listening")
 	elseif req.state == "stop" then
 		session.state = STATE_IDLE
@@ -256,6 +261,10 @@ local function vad_detect(session, dat)
 		return false, err
 	end
 	if not res.is_finished then
+		local now = time.nowsec()
+		if session.silence_start_time + conf.exit_after_silence_seconds < now then
+			session.state = STATE_CLOSE
+		end
 		return true, nil
 	end
 	session.state = STATE_IDLE
@@ -275,7 +284,6 @@ local function vad_detect(session, dat)
 		chat = agent[agent_name]
 		session.chat = chat
 	end
-	session.text = txt
 	chat(session, txt)
 	if intent.over(txt) then
 		session.state = STATE_CLOSE
