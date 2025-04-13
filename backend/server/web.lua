@@ -3,21 +3,25 @@ local logger = require "core.logger"
 local json = require "core.json"
 local http = require "core.http"
 local helper = require "core.http.helper"
-local agent = require "agent.chat"
+local agent = require "agent"
+local intent = require "intent".agent
 local memory = require "memory"
 local conf = require "conf"
 
+local assert = assert
 local setmetatable = setmetatable
 
 ---@class web.session:session
 ---@field private stream core.http.h1stream
 local wsession = {}
 local ctx_mt = {__index = wsession}
-function wsession.new(uid, stream, addr)
+function wsession.new(uid, stream, addr, chat)
+	assert(chat)
 	return setmetatable({
 		remote_addr = addr,
 		stream = stream,
 		buf = {},
+		chat = chat,
 		memory = memory.new(uid),
 	}, ctx_mt)
 end
@@ -58,8 +62,15 @@ function wsession:error(err)
 	stream:close()
 end
 
+local sessions = {}
+
 local router = {}
 router["/chat"] = function(stream)
+	local session_id
+	local cookie = stream.header["cookie"]
+	if cookie then
+		session_id = cookie:match("session_id=([^;]+)")
+	end
 	local msg = stream.query.message
 	msg = helper.urldecode(msg)
 	if not msg then
@@ -72,9 +83,15 @@ router["/chat"] = function(stream)
 		stream:close()
 		return
 	end
-	--TODO: hard uid = 1
-	local s = wsession.new(1, stream, stream.remote_addr)
-	local ok, err = core.pcall(agent, s, msg)
+	local s = sessions[session_id]
+	if not s then
+		local agent_name = intent(msg) or "chat"
+		--TODO: user real uid
+		s = wsession.new(1, stream, stream.remote_addr, agent[agent_name])
+		sessions[session_id] = s
+	end
+	s.stream = stream
+	local ok, err = core.pcall(s.chat, s, msg)
 	if not ok then
 		logger.errorf("chat uid:%s failed: %s", 1, err)
 	end

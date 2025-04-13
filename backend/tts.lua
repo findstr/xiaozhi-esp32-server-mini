@@ -9,7 +9,7 @@ local tts = require ("tts." .. conf.tts.use)
 local setmetatable = setmetatable
 local len = utf8.len
 local min_char<const> = 5
-local max_char<const> = 64
+local max_char<const> = 32
 
 local p = protoc:new()
 

@@ -9,7 +9,7 @@ export default defineConfig({
     strictPort: true, // 禁止端口占用时自动切换
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',  // 确保这是你后端服务的正确地址
+        target: 'http://localhost:8081',  // 确保这是你后端服务的正确地址
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, '')
       }

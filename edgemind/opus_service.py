@@ -14,7 +14,7 @@ class OpusService(opus_pb2_grpc.OpusServicer):
         frame_duration = 60  # 60ms per frame
         self.frame_size = int(16000 * frame_duration / 1000)  # 960 samples/frame
         self.encoder = opuslib_next.Encoder(16000, 1, opuslib_next.APPLICATION_AUDIO)
-        self.test()
+        # self.test()
 
     def test(self):
         with open("all.pcm", "rb") as f:

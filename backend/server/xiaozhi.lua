@@ -9,26 +9,27 @@ local asr = require "asr"
 local tts = require "tts"
 local conf = require "conf"
 local memory = require "memory"
-local chat = require "agent.chat"
+local agent = require "agent"
+local intent = require "intent"
 
 local pairs = pairs
 local ipairs = ipairs
 
 local p = protoc:new()
 
----@alias xiaozhi.state "idle" | "listening" | "speaking"
+---@alias xiaozhi.state "idle" | "listening" | "speaking" | "close"
 local STATE_IDLE = "idle"
 local STATE_LISTENING = "listening"
 local STATE_SPEAKING = "speaking"
+local STATE_CLOSE = "close"
 
 p:load[[
 syntax = "proto3";
 package xiaozhi;
 
 message frames {
-	repeated bytes frames = 1;
+	repeated bytes list = 1;
 }
-
 ]]
 
 local function save_frames(file, frames)
@@ -37,18 +38,28 @@ local function save_frames(file, frames)
 		logger.error("xiaozhi", "failed to open audio.bin", err)
 		return
 	end
-	local dat = pb.encode("xiaozhi.frames", frames)
+	local dat = pb.encode("xiaozhi.frames", {list = frames})
 	f:write(dat)
 end
 
 local function read_frames(file)
 	local f<close>, err = io.open(file, "rb")
 	if not f then
-		logger.error("xiaozhi", "failed to open audio.bin", err)
 		return
 	end
 	local dat = f:read("a")
-	return pb.decode("xiaozhi.frames", dat)
+	local frames = pb.decode("xiaozhi.frames", dat)
+	if not frames then
+		logger.error("xiaozhi", "failed to decode audio.bin")
+		return
+	end
+	return frames.list
+end
+
+local hello_opus = nil
+
+do
+	hello_opus = read_frames("hello.opus")
 end
 
 
@@ -61,6 +72,7 @@ end
 ---@field vad_stream vad.stream
 ---@field buf string
 ---@field speak_buf {content: string, type: string}[]
+---@field chat? function(session, string):boolean
 ---@field closed boolean
 local xsession = {}
 local xsession_mt = {__index = xsession}
@@ -80,6 +92,7 @@ function xsession.new(uid, sock)
 		tts = nil,
 		speak_buf = {},
 		closed = false,
+		chat = nil,
 	}, xsession_mt)
 	core.fork(function()
 		local remove = table.remove
@@ -91,7 +104,7 @@ function xsession.new(uid, sock)
 					core.sleep(30)
 				end
 			else
-				core.sleep(10)
+				core.sleep(1)
 			end
 		end
 		local vad_stream = s.vad_stream
@@ -183,8 +196,13 @@ function router.listen(session, req)
 		if not tts then
 			logger.error("xiaozhi", "failed to create tts")
 		else
-			local opus, txt = tts:speak("你好呀")
-			session:sendopus(opus, txt)
+			local prompt = "你好呀，混沌！"
+			if not hello_opus then
+				local opus, txt = tts:speak(prompt)
+				hello_opus = opus
+				save_frames("hello.opus", hello_opus)
+			end
+			session:sendopus(hello_opus, prompt)
 			local opus_datas, txt = tts:close()
 			if not opus_datas then
 				logger.error("xiaozhi", "failed to close tts")
@@ -213,6 +231,7 @@ function router.close(ctx, req)
 
 end
 
+---@param session xiaozhi.session
 local function vad_detect(session, dat)
 	logger.info("xiaozhi", "binary", #dat)
 	local vad_stream = session.vad_stream
@@ -250,7 +269,17 @@ local function vad_detect(session, dat)
 	logger.infof("[xiaozhi] vad str:%s", txt)
 	session:sendjson({type = "stt", text = txt, session_id = session.session_id})
 	session.state = STATE_SPEAKING
+	local chat = session.chat
+	if not chat then
+		local agent_name = intent.agent(txt) or "chat"
+		chat = agent[agent_name]
+		session.chat = chat
+	end
+	session.text = txt
 	chat(session, txt)
+	if intent.over(txt) then
+		session.state = STATE_CLOSE
+	end
 	return true, nil
 end
 
@@ -258,7 +287,7 @@ local server, err = websocket.listen {
 	addr = conf.xiaozhi_listen,
 	handler = function(sock)
 	local session = xsession.new(1, sock)
-	while true do
+	while session.state ~= STATE_CLOSE do
 		local dat, typ = sock:read()
 		if not dat then
 			break

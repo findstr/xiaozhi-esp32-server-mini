@@ -15,7 +15,7 @@ for _, tool in ipairs(conf.tools) do
 end
 
 require "server.web"
---require "server.xiaozhi"
+require "server.xiaozhi"
 
 --[[
 local core = require "core"

@@ -2,11 +2,13 @@ local core = require "core"
 local time = require "core.time"
 local json = require "core.json"
 local logger = require "core.logger"
+local mutex = require "core.sync.mutex"
 local openai = require "openai"
 local embedding = require "embedding"
 local db = require "db"
 
 local tonumber = tonumber
+local setmetatable = setmetatable
 local date = os.date
 local format = string.format
 local concat = table.concat
@@ -16,53 +18,17 @@ local tremove = table.remove
 ---@field uid number
 ---@field working {role: string, content: string}[]
 ---@field compressed string[]
----@field summary string
 ---@field profile string
----@field private modify_version number
----@field private process_version number
----@field private update_time number
 local M = {}
 local mt = {__index = M}
 
-local dbk_user<const> = "user:%s"
+local dbk_profile<const> = "profile:%s"
 local dbk_mem<const>  = "mem:%s"
 local memory_index_name<const> = "memory_idx"
 local dbk_mem_id = time.now() * 1000
 local keep_converse_count<const> = 5
 
-local function newuser(uid, profile)
-	return {
-		modify_version = 1,
-		process_version = 1,
-		uid = uid,
-		working = {},
-		compressed = {},
-		profile = profile,
-		update_time = time.nowsec(),
-	}
-end
-
-local memory_cache = setmetatable({}, {
-	__mode = "v",
-	__index = function(t, k)
-		local u
-		local ok, v = db:call("JSON.GET", format(dbk_mem, k))
-		if ok and v then
-			u = json.decode(v)
-		end
-		if not u then
-			u = newuser(k, "")
-		end
-		setmetatable(u, mt)
-		t[k] = u
-		return u
-	end
-})
-
--- 等待后处理的记忆
-local opening_memory = {}
-local closing_memory = {}
-local wait_for_thinking = {}
+local lock = mutex.new()
 
 local function create_index()
 	-- check index if exists
@@ -205,7 +171,7 @@ local function summarize(uid, summary, working)
 	return response.choices[1].message.content
 end
 
-local function update_profile(profile, working)
+local function update_profile(user)
 	local all_context = {}
 	all_context[#all_context+1] = {
 		role = "system",
@@ -216,18 +182,19 @@ local function update_profile(profile, working)
 仅输出以下格式内容：
 
 <用户画像>
-兴趣: [列出兴趣点，无新信息则保持原列表]
-职业: [职业信息，无新信息则保持原信息]
-需求: [主要需求，无新信息则保持原需求]
-偏好: [使用偏好，无新信息则保持原偏好]
-背景: [相关背景，无新信息则保持原背景]
+兴趣: [列出兴趣点]
+职业: [职业信息]
+需求: [主要需求]
+偏好: [使用偏好]
+背景: [相关背景]
 </用户画像>
 ]]
 	}
 	all_context[#all_context+1] = {
 		role = "system",
-		content = format("用户当前画像：%s", profile),
+		content = format("用户当前画像：%s", user.profile),
 	}
+	local working = user.working
 	for i = 1, #working do
 		all_context[#all_context+1] = working[i]
 	end
@@ -341,16 +308,22 @@ end
 
 function M.start()
 	create_index()
-	core.timeout(1000, background_thinking)
 end
 
 ---@param uid number
 ---@return memory
 function M.new(uid)
-	local m = memory_cache[uid]
-	m.update_time = time.nowsec()
-	opening_memory[m] = true
-	return m
+	local profile = ""
+	local ok, v = db:call("JSON.GET", format(dbk_profile, uid))
+	if ok and v then
+		profile = json.decode(v)
+	end
+	return setmetatable({
+		uid = uid,
+		working = {},
+		compressed = {},
+		profile = profile,
+	}, mt)
 end
 
 ---@param self memory
@@ -394,7 +367,6 @@ function M:retrieve(tbl, msg)
 end
 
 function M:add(q, a)
-	self.modify_version = self.modify_version + 1
 	local working = self.working
 	working[#working + 1] = {
 		role = "user",
@@ -404,13 +376,12 @@ function M:add(q, a)
 		role = "assistant",
 		content = a,
 	}
-	self.update_time = time.nowsec()
-	db:call("JSON.SET", format(dbk_user, self.uid), "$", json.encode(self))
 end
 
 function M:close()
-	self.update_time = time.nowsec()
-	closing_memory[self] = true
+	core.fork(function()
+		update_profile(self)
+	end)
 end
 
 return M
