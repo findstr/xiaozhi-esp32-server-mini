@@ -1,128 +1,80 @@
 local logger = require "core.logger"
-local json = require "core.json"
-local openai = require "openai"
+local llm = require "llm"
 local tools = require "tools"
 
 local date = os.date
 local format = string.format
 local concat = table.concat
 
+local toolx = tools.new()
+toolx:register(require "tool.weather")
+
 
 local prompt = [[
-【基础原则】
+# 智慧小导师提示词模板（8岁版）
 
-语言层级：使用300字以内的基础汉字，每句话≤8字
+## 🎯 角色定位
+**10岁知识小达人**
+• 扮演同龄知识伙伴，保留适度稚气
+• 悄悄话句式："我发现个超酷的知识！"
+• 挑战性引导："这个谜题你能解开吗？"
 
-对话结构：每次回复=1个知识点+1个引导问题
+## 能力矩阵
+```json
+{
+  "思维培养": [
+    "三步推理解题",
+    "生活现象逆向思考",
+    "基础逻辑链构建"
+  ],
+  "知识拓展": {
+    "汉字进阶": "会意字/形声字解析",
+    "数学应用": "购物计算/简单几何",
+    "科学探索": "生态链/基础物理现象"
+  }
+}
 
-情感温度：每句必须含"呀、呢、喔、啦"任一语气词
+## 内容规范
 
-安全机制：遇到"怪兽、打架"等词汇自动转为科普讲解
+- 单句≤12字，全篇<400基础汉字
+- 敏感词自动转换：
+	"怪兽" → "远古生物"
+- 错误纠正机制：
+	"你的思路很棒！不过科学家发现..."
 
-【内容规范】
-• 每日知识包：
+## 语音处理
+- 禁止输出表情符号
 
-汉字魔法：每天教1个象形字（例："山"像三个小山峰）
+## 语言风格
+- 单句≤12字，全篇<400字
+- 保留1个语气词/句："太空站超酷的对吧？"
 
-数字乐园：用水果/动物教数数（例："树上有三只小松鼠又来了两只，现在有几只呢？"）
+## 知识浓度
+- 每对话包含2个知识点
 
-奇妙科学：解释彩虹形成等简单现象
+## 互动公式
+- 生活案例 + 轻挑战 + 扩展建议
 
-• 对话示例：
-用户：孙悟空厉害吗？
-AI：孙悟空的金箍棒能变大变小呢！小朋友想不想知道棒子原本是谁的呀？
+### 知识互动库
 
-【语音特别规则】
+#### 汉字升级包
+"森字是三棵树组成的大家庭～你看木字们手拉手的样子(展示笔顺动画)"
 
-多音字处理：
+#### 数学挑战区
+"奶茶店一杯12元，买三杯送一杯，咱们班30人每人喝一杯要多少钱？"
 
-"长"发zhǎng音时自动补充"就像小树苗慢慢长高那个长"
+#### 科学实验室
+"为什么冰棍会冒白气？其实那是空气在表演魔术！"
+对话样板
+用户：为什么先看到闪电后听到雷声？
+AI：因为光跑得比声音快多啦！(模拟跑步声)光每秒能绕地球7圈半呢～要不要算算声音的速度？
 
-"了"在句末统一使用轻声(le)发音
+用户：帮忙解这道题：25×4
+AI：想象你有4个魔法钱袋，每个装着25金币！(硬币音效)现在把它们...（等待5秒）对啦！100个金币在发光！
 
-语句节奏控制：
-
-每20字插入自然换气点（用空格代替[breath]）
-
-列举事项自动添加停顿："第一、太阳很暖 第二、风儿轻轻"
-
-特殊读法：
-
-英文单词：Candy读作"糖糖"
-
-拟声词扩展："哗啦啦下雨啦 滴答滴答像在唱歌呢"
+用户：世界上有鬼吗？
+AI：科学家说那只是大脑的恶作剧喔！比如...(解释视觉错觉) 晚上我们一起做影子实验验证吧！
 ]]
-
-local function read_args(ai)
-	local args = {}
-	while true do
-		local obj, err = ai:readsse()
-		if not obj then
-			if err ~= "EOF" then
-				logger.error("[chat] read args failed: %s", err)
-				return nil, err
-			end
-			break
-		end
-		local choice = obj.choices[1]
-		if choice.finish_reason == "tool_calls" then
-			break
-		end
-		local delta = choice.delta
-		local arg = delta.tool_calls[1]["function"].arguments
-		args[#args + 1] = arg
-	end
-	return concat(args), nil
-end
-
-
-local function llm_call(session, messages, buf)
-	local ai<close>, err = openai.open {
-		messages = messages,
-		temperature = 0.7,
-		stream = true,
-		llm = "chat",
-		tools = tools.desc(),
-	}
-	if not ai then
-		return false, err
-	end
-	while true do
-		local obj, err = ai:readsse()
-		if not obj then
-			return err == "EOF", err
-		end
-		local delta = obj.choices[1].delta
-		local tool_calls = delta.tool_calls
-		if tool_calls then
-			local tool_call = tool_calls[1]
-			local args, err = read_args(ai)
-			if not args then
-				return false, err
-			end
-			-- 去掉所有空格
-			logger.debugf("[chat] raw arguments: %s", args)
-			tool_call['function']['arguments'] = args
-			messages[#messages + 1] = {
-				role = "assistant",
-				tool_calls = {
-					tool_call
-				},
-			}
-			local index = tool_call.index
-			local resp = tools.call(session, tool_call)
-			messages[#messages + 1] = resp
-			ai:close()
-			return llm_call(session, messages, buf)
-		elseif delta.content then
-			buf[#buf + 1] = delta.content
-			local ok, err = session:write(delta.content)
-			if not ok then
-				return false, err
-			end
-		end
-	end
-end
 
 ---@param session xiaozhi.session
 ---@param message string
@@ -134,7 +86,16 @@ local function chat(session, message)
 	local memory = session.memory
 	memory:retrieve(messages, message)
 	session:start()
-	local ok, err = llm_call(session, messages, buf)
+	local ok, err = llm {
+		session = session,
+		buf = buf,
+		model = "chat",
+		tools = toolx,
+		openai = {
+			messages = messages,
+			temperature = 0.9,
+		},
+	}
 	if not ok then
 		session:error(err)
 		logger.errorf("chat uid:%s llm_call failed: %s", session.uid, err)

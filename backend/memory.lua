@@ -3,6 +3,7 @@ local time = require "core.time"
 local json = require "core.json"
 local logger = require "core.logger"
 local mutex = require "core.sync.mutex"
+local conf = require "conf"
 local openai = require "openai"
 local embedding = require "embedding"
 local db = require "db"
@@ -13,6 +14,8 @@ local date = os.date
 local format = string.format
 local concat = table.concat
 local tremove = table.remove
+
+local model_conf = conf.llm.think
 
 ---@class memory
 ---@field uid number
@@ -106,11 +109,10 @@ local function compress(messages)
 	for i = 1, #messages do
 		prompt[#prompt+1] = messages[i]
 	end
-	local ai<close>, err = openai.open {
+	local ai<close>, err = openai.open(model_conf, {
 		messages = prompt,
 		temperature = 0.3,
-		llm = "think",
-	}
+	})
 	if not ai then
 		return nil, err
 	end
@@ -152,13 +154,12 @@ local function summarize(uid, summary, working)
 	if #all_context == 0 then
 		return ""
 	end
-	local ai<close>, err = openai.open {
+	local ai<close>, err = openai.open(model_conf, {
 		messages = all_context,
 		temperature = 0.1, -- 更低的温度提高确定性
 		top_p = 0.3,       -- 限制采样范围
 		frequency_penalty = 0.5, -- 降低重复
-		llm = "think",
-	}
+	})
 	if not ai then
 		logger.errorf("[memory] update_summary uid:%s failed: %s", uid, err)
 		return ""
@@ -198,15 +199,14 @@ local function update_profile(user)
 	for i = 1, #working do
 		all_context[#all_context+1] = working[i]
 	end
-	local ai<close>, err = openai.open {
+	local ai<close>, err = openai.open(model_conf, {
 		messages = all_context,
 		temperature = 0.0, -- 降至最低以获得最大确定性
 		top_p = 0.1, -- 进一步限制采样范围
 		frequency_penalty = 0.3, -- 略微降低，因为过高可能导致避开必要的格式词
 		presence_penalty = 0.1, -- 添加轻微的惩罚以避免引入新主题
-		llm = "think",
 		max_tokens = 150 -- 限制输出长度，只需要画像部分
-	}
+	})
 	if not ai then
 		logger.errorf("[memory] update_profile failed: %s", err)
 		return

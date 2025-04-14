@@ -31,14 +31,10 @@ local alpn_protos = {"http/1.1", "h2"}
 ---	model: string?,
 ---}
 ---@return openai?, string? error
-function M.open(req)
-	local model_conf = conf.llm[req.llm]
-	if not model_conf then
-		error("model not found: " .. req.llm)
-	end
-	req.llm = nil
+function M.open(model_conf, req)
 	req.model = model_conf.model
 	local txt = json.encode(req)
+	logger.debugf("[openai] request: %s", txt)
 	local stream, err = http.request("POST", model_conf.api_url, {
 		["authorization"] = model_conf.api_key,
 		["content-type"] = "application/json",

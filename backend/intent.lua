@@ -1,6 +1,7 @@
 local logger = require "core.logger"
 local json = require "core.json"
 local openai = require "openai"
+local conf = require "conf"
 
 local ipairs = ipairs
 local format = string.format
@@ -41,6 +42,8 @@ local sys_prompt = [[
 }
 ]]
 
+local model_conf = conf.llm.intent
+
 local M = {}
 
 ---@param message string
@@ -50,11 +53,10 @@ function M.agent(message)
 		{role = "system", content = format(sys_prompt, agent_list)},
 		{role = "user", content = message},
 	}
-	local ai<close>, err = openai.open {
+	local ai<close>, err = openai.open(model_conf, {
 		messages = messages,
 		temperature = 0.7,
-		llm = "intent",
-	}
+	})
 	if not ai then
 		logger.error("[intent] openai open failed: %s", err)
 		return false, err
@@ -206,15 +208,14 @@ function M.over(message)
 		{role = "system", content = sys_over_prompt},
 		{role = "user", content = message},
 	}
-	local ai<close>, err = openai.open {
+	local ai<close>, err = openai.open(model_conf, {
 		messages = messages,
 		temperature = 0.1,
 		max_tokens = 100,
 		top_p = 0.9,              	-- 平衡确定性与灵活性
 		frequency_penalty = 0.5,  	-- 减少无效重复
 		presence_penalty = 0.3,    	-- 避免多余内容
-		llm = "intent",
-	}
+	})
 	if not ai then
 		logger.error("[intent] openai open failed: %s", err)
 		return false, err

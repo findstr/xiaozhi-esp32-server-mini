@@ -1,6 +1,9 @@
 local logger = require "core.logger"
 local dns = require "core.dns"
 local conf = require "conf"
+
+logger.debugf("[main] start")
+
 --- load config
 do
 	local function merge_conf(base, override)
@@ -26,11 +29,6 @@ end
 
 local memory = require "memory"
 memory.start()
-
-for _, tool in ipairs(conf.tools) do
-	logger.debugf("load tool: %s", tool)
-	require("tools." .. tool)
-end
 
 require "server.web"
 require "server.xiaozhi"

@@ -65,10 +65,6 @@ local M = {
 			secret_key = "abcdefghijklmnopqrstuvwxyz",
 		},
 	},
-	-- 提供的工具
-	tools = {
-		"weather",
-	},
 }
 
 return M
