@@ -56,7 +56,6 @@ local function llm_call(args)
 		if not obj then
 			return err == "EOF", err
 		end
-		logger.debugf("[llm] readsse: %s", json.encode(obj))
 		local delta = obj.choices[1].delta
 		local tool_calls = delta.tool_calls
 		if tool_calls then

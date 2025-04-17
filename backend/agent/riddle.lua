@@ -1,6 +1,5 @@
 local logger = require "core.logger"
 local llm = require "llm"
-local tools = require "tools"
 
 local concat = table.concat
 
@@ -49,4 +48,10 @@ local function chat(session, message)
 	session:stop()
 end
 
-return chat
+local m = {
+	name = "脑筋急转弯伙伴",
+	desc = "和小朋友进行脑筋急转弯互动，通过提问和回答推动思维游戏，而不是直接说答案。",
+	exec = chat,
+}
+
+return m

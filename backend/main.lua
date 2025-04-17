@@ -7,13 +7,16 @@ logger.debugf("[main] start")
 --- load config
 do
 	local function merge_conf(base, override)
-	    for k, v in pairs(override) do
-	        if type(v) == "table" and type(base[k]) == "table" then
-	            merge_conf(base[k], v)
-	        else
-	            base[k] = v
-	        end
-	    end
+		for k, src in pairs(base) do
+			local dst = override[k]
+			if dst then
+				if type(src) == "table" and type(dst) == "table" then
+					merge_conf(src, dst)
+				else
+					base[k] = dst
+				end
+			end
+		end
 	end
 	local ok, override_conf = pcall(require, "myconf")
 	if ok then

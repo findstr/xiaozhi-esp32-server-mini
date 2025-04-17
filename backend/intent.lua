@@ -6,25 +6,29 @@ local conf = require "conf"
 local ipairs = ipairs
 local format = string.format
 
-local agent_list = [[
-你是一个多角色调度助手。以下是当前支持的角色列表：
+local agents = {
+	"chat",
+	"riddle",
+	"teacher",
+	"spokenteacher",
+}
 
-1. 闲聊助手（agent_name: chat）
-   描述：进行日常聊天、回答轻松的问题，比如天气、心情、兴趣等。
+local agent_desc = ""
+local agent_exec = {}
 
-2. 脑筋急转弯伙伴（agent_name: riddle）
-   描述：和小朋友进行脑筋急转弯互动，通过提问和回答推动思维游戏，而不是直接说答案。
+do
+	local buf = {}
+	for i, name in ipairs(agents) do
+		local m = require("agent." .. name)
+		agent_exec[name] = m.exec
+		buf[#buf + 1] = string.format("%d. %s（agent_name: %s）", i, m.name, name)
+		buf[#buf + 1] = string.format("描述：%s", m.desc)
+		buf[#buf + 1] = ""
+	end
+	agent_desc = table.concat(buf, "\n")
+end
 
-3. 小学老师（agent_name: teacher）
-   描述：用小学生能理解的方式讲解知识点，可以教授语文、数学、英语等内容。
-
-4. 英语口语老师(agent_name: spokenteacher)
-   描述：专注于英语口语教学，使用TPR全身反应教学法，适合6-8岁儿童。
-
-请根据用户的输入判断最合适的角色，并返回对应的 `agent_name` 和一个简短的理由。
-]]
-
-local sys_prompt = [[
+local sys_prompt = string.format([[
 你是一个智能意图识别器。你的任务是根据用户输入判断最适合的角色(agent)来回答问题。
 
 请根据下面角色列表进行分析，并输出：
@@ -32,15 +36,17 @@ local sys_prompt = [[
 - 判断理由（1~2句话）
 - 如果没有明显匹配项，则返回 agent_name 为 "chat"（默认角色）
 
-角色列表：
+以下是当前支持的角色列表：
 %s
+
+请根据用户的输入判断最合适的角色，并返回对应的 `agent_name` 和一个简短的理由。
 
 输出格式如下（JSON）：
 {
   "agent_name": "xxx",
   "reason": "..."
 }
-]]
+]], agent_desc)
 
 local model_conf = conf.llm.intent
 
@@ -50,7 +56,7 @@ local M = {}
 ---@return boolean, string? error
 function M.agent(message)
 	local messages = {
-		{role = "system", content = format(sys_prompt, agent_list)},
+		{ role = "system", content = format(sys_prompt, agent_desc) },
 		{role = "user", content = message},
 	}
 	local ai<close>, err = openai.open(model_conf, {
@@ -77,7 +83,7 @@ function M.agent(message)
 		logger.errorf("[intent] openai decode failed: %s", content)
 		return false, "decode failed"
 	end
-	return obj.agent_name, nil
+	return agent_exec[obj.agent_name] or agent_exec.chat
 end
 
 local sys_over_prompt = [[

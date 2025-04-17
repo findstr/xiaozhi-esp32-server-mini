@@ -34,7 +34,7 @@ local alpn_protos = {"http/1.1", "h2"}
 function M.open(model_conf, req)
 	req.model = model_conf.model
 	local txt = json.encode(req)
-	logger.debugf("[openai] request: %s", txt)
+	--logger.debugf("[openai] request: %s", txt)
 	local stream, err = http.request("POST", model_conf.api_url, {
 		["authorization"] = model_conf.api_key,
 		["content-type"] = "application/json",
@@ -125,6 +125,7 @@ function M:readsse()
 		self.events = nil
 		return nil, "EOF"
 	end
+	logger.debugf("[openai] readsse: %s", event)
 	local obj = json.decode(event)
 	assert(obj, "decode failed: " .. event)
 	return obj, nil

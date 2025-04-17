@@ -38,6 +38,11 @@ local M = {
 
 	-- 大模型
 	llm = { -- 只支持兼容openai的API
+		intent = {
+			api_url = "https://api.siliconflow.cn/v1/chat/completions",
+			api_key = "Bearer ---------------------",
+			model = "Qwen/Qwen2.5-7B-Instruct", -- 聊天模型，主要用来对话，可以适当降低精度，以提高响应速度
+		},
 		chat = {
 			api_url = "https://api.siliconflow.cn/v1/chat/completions",
 			api_key = "Bearer ---------------------",	-- API密钥
@@ -63,6 +68,11 @@ local M = {
 		tencent = {
 			key = "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF",
 			secret_key = "abcdefghijklmnopqrstuvwxyz",
+		},
+		custom = {
+			lng = "121.54",
+			lat = "31.22",
+			city = "上海市浦东新区",
 		},
 	},
 }

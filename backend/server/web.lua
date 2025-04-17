@@ -12,7 +12,7 @@ local assert = assert
 local setmetatable = setmetatable
 
 ---@class web.session:session
----@field private stream core.http.h1stream
+---@field stream core.http.h1stream
 local wsession = {}
 local ctx_mt = {__index = wsession}
 function wsession.new(uid, stream, addr, chat)
@@ -85,9 +85,9 @@ router["/chat"] = function(stream)
 	end
 	local s = sessions[session_id]
 	if not s then
-		local agent_name = intent(msg) or "chat"
+		local agent = intent(msg)
 		--TODO: user real uid
-		s = wsession.new(1, stream, stream.remote_addr, agent[agent_name])
+		s = wsession.new(1, stream, stream.remote_addr, agent)
 		sessions[session_id] = s
 	end
 	s.stream = stream

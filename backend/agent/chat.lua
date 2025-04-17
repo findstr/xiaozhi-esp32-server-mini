@@ -93,7 +93,7 @@ local function chat(session, message)
 		tools = toolx,
 		openai = {
 			messages = messages,
-			temperature = 0.9,
+			temperature = 0.6,
 		},
 	}
 	if not ok then
@@ -105,4 +105,10 @@ local function chat(session, message)
 	session:stop()
 end
 
-return chat
+local m = {
+	name = "闲聊助手",
+	desc = "进行日常聊天、回答轻松的问题，比如天气、心情、兴趣等。",
+	exec = chat,
+}
+
+return m

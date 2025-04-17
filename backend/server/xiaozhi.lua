@@ -280,11 +280,9 @@ local function vad_detect(session, dat)
 	session.state = STATE_SPEAKING
 	local chat = session.chat
 	if not chat then
-		local agent_name = intent.agent(txt) or "chat"
-		chat = agent[agent_name]
-		session.chat = chat
+		session.chat = intent.agent(txt)
 	end
-	chat(session, txt)
+	session.chat(session, txt)
 	if intent.over(txt) then
 		session.state = STATE_CLOSE
 	end

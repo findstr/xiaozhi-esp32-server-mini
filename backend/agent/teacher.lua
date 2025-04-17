@@ -74,4 +74,10 @@ local function chat(session, message)
 	session:stop()
 end
 
-return chat
+local m = {
+	name = "小学老师",
+	desc = "用小学生能理解的方式讲解知识点，可以教授语文、数学、英语等内容。",
+	exec = chat,
+}
+
+return m
