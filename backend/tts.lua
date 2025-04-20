@@ -1,8 +1,6 @@
 local core = require "core"
 local time = require "core.time"
-local grpc = require "core.grpc"
 local logger = require "core.logger"
-local protoc = require "protoc"
 local conf = require "conf"
 local tts = require ("tts." .. conf.tts.use)
 
@@ -10,24 +8,6 @@ local setmetatable = setmetatable
 local len = utf8.len
 local min_char<const> = 5
 local max_char<const> = 32
-
-local p = protoc:new()
-
-
-local f<close>, err = io.open("proto/opus.proto")
-assert(f, err)
-local data = f:read("a")
-local ok = p:load(data, "opus.proto")
-assert(ok)
-
-local proto = p.loaded["opus.proto"]
-local client, err = grpc.newclient {
-	service = "Opus",
-	endpoints = {conf.opus.grpc_addr},
-	proto = proto,
-	timeout = 5000,
-}
-assert(client, err)
 
 local M = {}
 local mt = {__index = M, __gc = function(t)
@@ -39,40 +19,22 @@ local mt = {__index = M, __gc = function(t)
 end}
 
 function M.new()
-	local stream, err = client.WrapPCM()
-	if not stream then
-		logger.errorf("[tts] failed to wrap grpc: %s", err)
-		return nil, err
-	end
 	return setmetatable({
-		stream = stream,
 		buf = "",
 		min_char = min_char,
 		last_tts_time = 0,
 	}, mt)
 end
 
-function M:txt_to_opus(txt, is_last)
+function M:txt_to_pcm(txt, is_last)
 	self:rate_limit()
 	local data, err = tts(txt)
 	self.last_tts_time = time.now()
 	if not data then
 		logger.errorf("[tts] close failed to tts: %s", err)
-		return nil
+		return nil, err
 	end
-	local stream = self.stream
-	stream:write {
-		is_last = is_last,
-		pcm_data = data,
-	}
-	local opus_datas
-	local res, err = stream:read()
-	if not res then
-		logger.errorf("[tts] failed to read from grpc: %s", err)
-	else
-		opus_datas = res.opus_datas
-	end
-	return opus_datas
+	return data, err
 end
 
 function M:rate_limit()
@@ -89,11 +51,11 @@ function M:close()
 		return nil
 	end
 	local buf = self.buf
-	local opus_datas = self:txt_to_opus(buf, true)
+	local pcm_data = self:txt_to_pcm(buf, true)
 	self.buf = ""
 	stream:close()
 	self.stream = nil
-	return opus_datas, buf
+	return pcm_data, buf
 end
 
 local sep = {}
@@ -130,7 +92,7 @@ function M:speak(txt)
 	end
 	self.min_char = max_char
 	self.buf = buf:sub(x)
-	return self:txt_to_opus(try_to_use, false), try_to_use
+	return self:txt_to_pcm(try_to_use, false), try_to_use
 end
 
 return M

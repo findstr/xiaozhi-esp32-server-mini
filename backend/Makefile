@@ -2,7 +2,7 @@
 
 ONNXRUNTIME = ./deps/onnxruntime-linux-x64
 OPUS = ./deps/opus
-INCLUDE = -I$(ONNXRUNTIME)/include -I$(OPUS)/include -I/home/zhoupy/silly/deps/lua/
+INCLUDE = -I$(ONNXRUNTIME)/include -I$(OPUS)/include -I/home/findstr/silly/deps/lua/
 LIB_PATH = -L$(ONNXRUNTIME)/lib -L$(OPUS)/.libs
 
 CFLAGS = -g3 -std=c++20 -fPIC $(LIB_PATH)

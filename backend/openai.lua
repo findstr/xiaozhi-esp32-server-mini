@@ -125,7 +125,7 @@ function M:readsse()
 		self.events = nil
 		return nil, "EOF"
 	end
-	logger.debugf("[openai] readsse: %s", event)
+	--logger.debugf("[openai] readsse: %s", event)
 	local obj = json.decode(event)
 	assert(obj, "decode failed: " .. event)
 	return obj, nil

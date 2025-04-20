@@ -1,6 +1,7 @@
 local http = require "core.http"
 local json = require "core.json"
 local time = require "core.time"
+local logger = require "core.logger"
 local hash = require "core.crypto.hash"
 local hmac = require "core.crypto.hmac"
 local base64 = require "core.base64"
@@ -99,7 +100,7 @@ local function asr(dat)
 	if not resp then
 		return nil, err
 	end
-	print("asr", resp.body)
+	logger.info("[tencent] asr", resp.body)
 	local obj = json.decode(resp.body)
 	if not obj then
 		return nil, "decode error"
