@@ -13,7 +13,6 @@ local setmetatable = setmetatable
 local date = os.date
 local format = string.format
 local concat = table.concat
-local tremove = table.remove
 
 local model_conf = conf.llm.think
 
@@ -21,7 +20,7 @@ local model_conf = conf.llm.think
 ---@field uid number
 ---@field working {role: string, content: string}[]
 ---@field compressed string[]
----@field profile string
+---@field profile {content: string}
 local M = {}
 local mt = {__index = M}
 
@@ -29,9 +28,22 @@ local dbk_profile<const> = "profile:%s"
 local dbk_mem<const>  = "mem:%s"
 local memory_index_name<const> = "memory_idx"
 local dbk_mem_id = time.now() * 1000
-local keep_converse_count<const> = 5
 
-local lock = mutex.new()
+local uid_lock = mutex.new()
+
+local user_profile = setmetatable({}, {
+	__mode = "v",
+	__index = function(t, k)
+		local ok, v = db:hget(dbk_profile, k)
+		if not ok then
+			logger.errorf("[memory] profile uid:%s failed: %s", k, v)
+			return {content = ""}
+		end
+		local p = {content = v or ""}
+		t[k] = p
+		return p
+	end
+})
 
 local function create_index()
 	-- check index if exists
@@ -101,59 +113,58 @@ local function retrieval(uid, msg)
 	return concat(results, "\n\n"), nil
 end
 
-local function compress(messages)
-	local prompt = {{
-		role = "system",
-		content = [[请对以下对话片段进行轻度压缩，保留关键信息和主要内容，但可以去除冗余细节。保持信息的完整性和准确性。]]
-	}}
-	for i = 1, #messages do
-		prompt[#prompt+1] = messages[i]
-	end
-	local ai<close>, err = openai.open(model_conf, {
-		messages = prompt,
-		temperature = 0.3,
-	})
-	if not ai then
-		return nil, err
-	end
-	local response = ai:read()
-	if not response then
-		return nil, "no response"
-	end
-	return response.choices[1].message.content
-end
-
-local function summarize(uid, summary, working)
+local function summarize(uid, working, summary)
 	local all_context = {}
 	all_context[#all_context+1] = {
 		role = "system",
 		content = [[
 # 对话记忆整合指令
-作为信息整合专家，请从对话中提取关键信息形成长期记忆。
-严格按照指定格式输出，禁止添加任何分析、评论、问题或其他内容。
+
+你是一个对话信息整合专家，负责从对话中提取关键信息，用于长期记忆建档。
+请仅提取用户和 AI 的重要交互内容，不包含闲聊、寒暄、感叹、重复信息等无效内容。
+输出必须遵循以下格式，字段名称、顺序、标点必须完全一致。**禁止添加任何分析、评论、解释或问题**。
+
+## 输出要求：
+- 每个字段**必须填写**，如无内容请写 “无”；
+- 每个字段中内容应以**要点形式**（编号或项目符号）列出；
+- 每个字段最多提取 **3 条关键信息**，内容应**简洁明确**；
+- 输出不超过 200 字。
 
 <输出格式>
-主题: [核心讨论话题，1-2句概括]
-需求: [用户明确表达的需求和问题，要点形式]
-结论: [达成的共识和结论，要点形式]
-偏好: [用户表达的明确偏好，要点形式]
-待办: [未解决问题和后续行动项，要点形式]
-其他: [任何不属于上述类别但重要的信息]
+主题: [1~2句高度概括本轮对话的主题]
+需求:
+- [用户的目标、问题、请求等]
+- [...]
+- [...]
+结论:
+- [本轮达成的共识、明确事项或决定]
+- [...]
+- [...]
+偏好:
+- [用户表达的偏好，如工具、方式、风格等]
+- [...]
+- [...]
+待办:
+- [尚未完成或后续需要行动的事项]
+- [...]
+- [...]
+其他:
+- [其他无法归类但值得记录的关键信息]
+- [...]
 </输出格式>
 ]]
 	}
-	if summary and #summary > 0 then
-		all_context[#all_context+1] = {
-			role = "system",
-			content = format("早期对话摘要：%s", summary),
-		}
-	end
-	for i = 1, #working do
-		all_context[#all_context+1] = working[i]
-	end
-	if #all_context == 0 then
-		return ""
-	end
+	all_context[#all_context+1] = {
+		role = "user",
+		content = format([[
+请你根据以下对话内容提取关键信息：
+
+%s
+
+请按照输出格式整理信息。
+]], json.encode(working))
+	}
+	logger.debugf("[memory] update_summary uid:%s request: %s", uid, json.encode(all_context))
 	local ai<close>, err = openai.open(model_conf, {
 		messages = all_context,
 		temperature = 0.1, -- 更低的温度提高确定性
@@ -172,40 +183,75 @@ local function summarize(uid, summary, working)
 	return response.choices[1].message.content
 end
 
+local function save_chats(user)
+	local working = user.working
+	local content = summarize(user.uid, working, user.compressed)
+	if not content or #content == 0 then
+		logger.errorf("[memory] save_chats uid:%s failed: %s", user.uid, "no content")
+		return
+	end
+	local vector, err = embedding(content)
+	if not vector then
+		logger.errorf("[memory] uid:%s save_chats embedding failed: %s", user.uid, err)
+		return nil, err
+	end
+	local id = dbk_mem_id + 1
+	dbk_mem_id = id
+	local dbk = format(dbk_mem, id)
+	local ok, err = db:pipeline {
+		{"HMSET", dbk,
+			"uid", user.uid,
+			"embedding", vector,
+			"text", content,
+			"timestamp", os.time()
+		},
+		{"EXPIRE", dbk, 60 * 60 * 24 * 30}
+	}
+	if not ok then
+		logger.errorf("[memory] uid:%s save_chats failed: %s", user.uid, err)
+		return
+	end
+	logger.infof("[memory] uid:%s save_chats `%s` success", user.uid, content)
+end
 local function update_profile(user)
 	local all_context = {}
 	all_context[#all_context+1] = {
 		role = "system",
 		content = [[
 # 用户画像生成器
-分析当前对话内容并更新用户画像。如果本次对话没有新的信息，请完整保留原有画像内容不变。
-禁止添加任何其他回复或问题。
-仅输出以下格式内容：
+你是一个用户画像提取与维护专家，任务是根据当前对话内容**更新并生成**用户画像。
+- 请在分析后，根据需要修改、增加或补充画像中的字段。
+- 如果当前对话没有新增信息，请原样保留所有字段内容，不可进行空洞总结或删减。
 
+格式严格如下，不添加额外内容、不改变字段顺序、不增加额外字段：
 <用户画像>
-兴趣: [列出兴趣点]
-职业: [职业信息]
-需求: [主要需求]
-偏好: [使用偏好]
-背景: [相关背景]
+兴趣: [列出兴趣点，多个用逗号分隔]
+职业: [简明准确地描述职业]
+需求: [总结用户当前表达的主要需求或目标]
+偏好: [总结用户偏好的工具、语言、交互方式等]
+背景: [历史对话中提取的有价值背景信息]
 </用户画像>
 ]]
 	}
+	local lock<close> = uid_lock:lock(user.uid)
 	all_context[#all_context+1] = {
-		role = "system",
-		content = format("用户当前画像：%s", user.profile),
+		role = "user",
+		content = format([[
+用户当前画像：
+%s
+用户当前对话记录:
+%s
+
+请根据当前对话内容更新用户画像。
+]], user.profile.content, json.encode(user.working)),
 	}
-	local working = user.working
-	for i = 1, #working do
-		all_context[#all_context+1] = working[i]
-	end
 	local ai<close>, err = openai.open(model_conf, {
 		messages = all_context,
 		temperature = 0.0, -- 降至最低以获得最大确定性
 		top_p = 0.1, -- 进一步限制采样范围
-		frequency_penalty = 0.3, -- 略微降低，因为过高可能导致避开必要的格式词
-		presence_penalty = 0.1, -- 添加轻微的惩罚以避免引入新主题
-		max_tokens = 150 -- 限制输出长度，只需要画像部分
+		frequency_penalty = 0.2, -- 略微降低，因为过高可能导致避开必要的格式词
+		presence_penalty = 0.0, -- 添加轻微的惩罚以避免引入新主题
+		max_tokens = 256 -- 限制输出长度，只需要画像部分
 	})
 	if not ai then
 		logger.errorf("[memory] update_profile failed: %s", err)
@@ -217,93 +263,10 @@ local function update_profile(user)
 		return
 	end
 	local content = response.choices[1].message.content
-	return content
-end
-
-local function background_thinking()
-	if #wait_for_thinking == 0 then
-		for m, _ in pairs(opening_memory) do
-			if closing_memory[m] then -- 如果正在关闭，需要清空
-				closing_memory[m] = nil
-				opening_memory[m] = nil
-			end
-			if m.modify_version > m.process_version then -- 没有修改，则不处理
-				wait_for_thinking[#wait_for_thinking+1] = m
-			end
-		end
-	end
-	local mem = tremove(wait_for_thinking, 1)
-	if not mem then
-		core.timeout(1000, background_thinking)
-		return
-	end
-	local modify_version = mem.modify_version
-	local working = mem.working
-	local profile = update_profile(mem.profile, working)
-	if profile then
-		mem.profile = profile
-		logger.debugf("[memory] update_profile uid:%s profile: %s", mem.uid, profile)
-	end
-	if #working > keep_converse_count then
-		local tmp = {}
-		for i = keep_converse_count , #working do
-			tmp[#tmp+1] = working[i]
-			working[i] = nil
-		end
-		local context, err = compress(working)
-		local summary = summarize(mem.uid, mem.summary, working)
-		if not context then
-			logger.errorf("[memory] compress_messages uid:%s failed: %s", mem.uid, err)
-		else
-			local t = mem.compressed
-			t[#t+1] = context
-		end
-		working = tmp
-		mem.working = working
-		if summary then
-			mem.summary = summary
-		end
-	end
-	local now = time.nowsec() - 10 * 60 -- 10分钟内不更新
-	local compressed = mem.compressed
-	if #compressed > 10 or now > mem.update_time then -- 超过50条对话就认为是新的一轮对话
-		local summary = summarize(mem.uid, mem.summary, working)
-		if summary then
-			mem.summary = summary
-		end
-		local ok, err = db:call("JSON.SET", format(dbk_user, mem.uid), "$", json.encode(mem))
-		if not ok then
-			logger.errorf("[memory] update_profile uid:%s failed: %s", mem.uid, err)
-		end
-		local summary = mem.summary
-		local vector, err = embedding(summary)
-		if not vector then
-			logger.errorf("[memory] close uid:%s failed: %s", mem.uid, err)
-			return
-		end
-		local session_id = dbk_mem_id + 1
-		dbk_mem_id = session_id
-		local dbk = format(dbk_mem, session_id)
-		local ok, err = db:pipeline {
-			{"HMSET", dbk,
-				"uid", mem.uid,
-				"embedding", vector,
-				"text", summary,
-				"timestamp", os.time()
-			},
-			{"EXPIRE", dbk, 60 * 60 * 24 * 30}
-		}
-		if not ok then
-			logger.errorf("[memory] close uid:%s failed: %s", mem.uid, err)
-		end
-		if now > mem.update_time then -- 超过10分钟，已经不需要保留上下文了
-			mem.compressed = {}
-		else	-- 保留最后1条对话
-			mem.compressed = {compressed[#compressed]}
-		end
-	end
-	mem.process_version = modify_version
-	core.timeout(1000, background_thinking)
+	logger.debugf("[memory] update_profile uid:%s content: %s", user.uid, content)
+	user.profile.content = content
+	local ok, err = db:hset(dbk_profile, user.uid, content)
+	logger.infof("[memory] update_profile uid:%s result: %s err: %s", user.uid, ok, err)
 end
 
 function M.start()
@@ -313,16 +276,11 @@ end
 ---@param uid number
 ---@return memory
 function M.new(uid)
-	local profile = ""
-	local ok, v = db:call("JSON.GET", format(dbk_profile, uid))
-	if ok and v then
-		profile = json.decode(v)
-	end
 	return setmetatable({
 		uid = uid,
 		working = {},
 		compressed = {},
-		profile = profile,
+		profile = user_profile[uid],
 	}, mt)
 end
 
@@ -341,7 +299,7 @@ function M:retrieve(tbl, msg)
 		logger.errorf("[memory] retrieval uid:%s failed: %s", self.uid, err)
 	end
 	-- 2. 用户画像信息
-	local profile = self.profile
+	local profile = self.profile.content
 	tbl[#tbl + 1] = {
 		role = "system",
 		content = "用户画像信息：" .. profile,
@@ -380,8 +338,12 @@ end
 
 function M:close()
 	core.fork(function()
+		save_chats(self)
+	end)
+	core.fork(function()
 		update_profile(self)
 	end)
+
 end
 
 return M
