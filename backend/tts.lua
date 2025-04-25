@@ -15,6 +15,7 @@ local mt = {__index = M, __gc = function(t)
 	if stream then
 		stream:close()
 		t.stream = nil
+		logger.debug("[tts] gc close stream")
 	end
 end}
 
@@ -39,12 +40,12 @@ end
 
 function M:rate_limit()
 	local nowms = time.now()
-	if nowms < self.last_tts_time + 500 then
-		core.sleep(self.last_tts_time + 500 - nowms)
+	if nowms < self.last_tts_time + 300 then
+		core.sleep(self.last_tts_time + 300 - nowms)
 	end
 end
 
-function M:close()
+function M:flush()
 	local stream = self.stream
 	if not stream then
 		logger.error("[tts] close stream is nil")
@@ -53,9 +54,16 @@ function M:close()
 	local buf = self.buf
 	local pcm_data = self:txt_to_pcm(buf, true)
 	self.buf = ""
-	stream:close()
-	self.stream = nil
-	return pcm_data, buf
+	return pcm_data
+end
+
+function M:close()
+	local stream = self.stream
+	if stream then
+		stream:close()
+		stream = nil
+	end
+	logger.debug("[tts] close stream")
 end
 
 local sep = {}

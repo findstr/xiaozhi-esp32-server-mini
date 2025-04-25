@@ -3,8 +3,6 @@ local time = require "core.time"
 local json = require "core.json"
 local logger = require "core.logger"
 local websocket = require "core.websocket"
-local protoc = require "protoc"
-local pb = require "pb"
 local voice = require "voice"
 local asr = require "asr"
 local tts = require "tts"
@@ -18,8 +16,6 @@ local ipairs = ipairs
 local remove = table.remove
 
 local vad_model_path = conf.vad.model_path
-
-local p = protoc:new()
 
 ---@alias xiaozhi.state "idle" | "listening" | "speaking" | "close"
 local STATE_IDLE = "idle"
@@ -71,10 +67,11 @@ end})
 ---@field remote_addr string
 ---@field sock core.http.websocket
 ---@field session_id string
----@field speak_buf {content: string, type: string}[]
 ---@field chat? function(session, string):boolean
 ---@field closed boolean
 ---@field silence_start_time integer
+---@field last_send_time integer
+---@field device_frame_count integer
 local xsession = {}
 local xsession_mt = {__index = xsession}
 
@@ -93,11 +90,6 @@ local function voice_ctx_new()
 	return ctx
 end
 
-local function voice_ctx_free(ctx)
-	voice_ctx_pool[#voice_ctx_pool + 1] = ctx
-end
-
-
 ---@param uid number
 ---@param sock core.http.websocket
 ---@return xiaozhi.session
@@ -110,58 +102,12 @@ function xsession.new(uid, sock)
 		session_id = false,
 		voice_ctx = voice_ctx_new(),
 		tts = tts.new(),
-		speak_buf = {},
 		closed = false,
 		chat = nil,
 		silence_start_time = math.maxinteger,
+		last_send_time = time.now(),
+		device_frame_count = 0,
 	}, xsession_mt)
-	core.fork(function()
-		local remove = table.remove
-		local last_send_time = time.now()
-		local device_frame_count = 0
-		while not s.closed or #s.speak_buf > 0 do
-			local dat = remove(s.speak_buf, 1)
-			if dat then
-				if dat.type == "text" then
-					s.sock:write(dat.content, dat.type)
-				else
-					-- 处理二进制数据
-					local nowms = time.now()
-					local elapsed = nowms - last_send_time
-					device_frame_count = device_frame_count - elapsed//60
-					local adjust = elapsed%60
-					if device_frame_count > 28 then
-						local wait_time = (device_frame_count - 2) * 60 - adjust
-						local before_sleep = time.now()
-						if wait_time > 0 then
-							core.sleep(wait_time)
-						end
-						local actual_sleep = time.now() - before_sleep
-						adjust = actual_sleep%60
-						device_frame_count = device_frame_count - actual_sleep//60
-					end
-					if device_frame_count < 0 then
-						device_frame_count = 0
-					end
-					s.sock:write(dat.content, dat.type)
-					device_frame_count = device_frame_count + 1
-					last_send_time = time.now() - adjust
-					s.silence_start_time = time.nowsec()
-				end
-			else
-				core.sleep(0)
-			end
-		end
-		if device_frame_count > 0 then
-			local wait_time = device_frame_count * 60
-			core.sleep(wait_time)
-		end
-		local voice_ctx = s.voice_ctx
-		if voice_ctx then
-			voice_ctx_free(voice_ctx)
-			s.voice_ctx = nil
-		end
-	end)
 	return s
 end
 
@@ -192,7 +138,7 @@ function xsession:write(data)
 end
 
 function xsession:stop()
-	local pcm_data, txt = tts:close()
+	local pcm_data, txt = tts:flush()
 	if pcm_data then
 		self.pcm_data[#self.pcm_data + 1] = pcm_data
 		self:sendpcm(pcm_data, txt)
@@ -221,24 +167,34 @@ end
 
 
 function xsession.sendjson(self, obj)
-	local sb = self.speak_buf
-	sb[#sb + 1] = {content = json.encode(obj), type = "text"}
+	local txt = json.encode(obj)
+	self.sock:write(txt, "text")
 end
 
-function xsession.sendopus(self, opus_datas, txt)
+local function sendopus(self, opus_datas, txt)
 	if not opus_datas then
 		return
 	end
-	local start = {
+	self:sendjson({
 		type = "tts",
 		state = "sentence_start",
 		text = txt,
 		session_id = self.session_id
-	}
-	local sb = self.speak_buf
-	sb[#sb+1] = {content = json.encode(start), type = "text"}
-	for i, dat in ipairs(opus_datas) do
-		sb[#sb+ 1] = {content = dat, type = "binary"}
+	})
+	local need_sleep = 0
+	for _, dat in ipairs(opus_datas) do
+		self.silence_start_time = time.nowsec()
+		self.sock:write(dat, "binary")
+		need_sleep = need_sleep + 60
+		if need_sleep > 1200 then
+			local now = time.now()
+			core.sleep(600)
+			local elapsed = time.now() - now
+			need_sleep = need_sleep -  elapsed
+		end
+	end
+	if need_sleep > 0 then
+		core.sleep(need_sleep)
 	end
 end
 
@@ -256,7 +212,7 @@ function xsession.sendpcm(self, pcm_data, txt)
 		logger.info("[xiaozhi] don't has pcm data")
 		return
 	end
-	xsession.sendopus(self, list, txt)
+	sendopus(self, list, txt)
 end
 
 local router = {}
@@ -280,19 +236,14 @@ function router.listen(session, req)
 		session:sendjson({type = "stt", text = "小智", session_id = session.session_id})
 		session:sendjson({type = "llm", text = "😊", emotion = "happy", session_id = session.session_id})
 		session:sendjson({type = "tts", state = "start", sample_rate = 24000, session_id = session.session_id, text = "开始检测"})
-		core.sleep(10)
+		core.sleep(50)
 		local pcm = pcm_cache["你好呀！"]
 		session:sendpcm(pcm, "你好呀！")
 		session:sendjson({type = "tts", state = "stop", session_id = session.session_id})
-		core.sleep(1000)
 	end
 end
 
 function router.abort(session, req)
-	local buf = session.speak_buf
-	for k in pairs(buf) do
-		buf[k] = nil
-	end
 	session.state = STATE_LISTENING
 	session:sendjson({type = "tts", state = "stop", session_id = session.session_id})
 end
@@ -391,15 +342,10 @@ local server, err = websocket.listen {
 		})
 		local pcm = pcm_cache["再见！"]
 		if pcm then
-			session:sendopus(pcm, "再见！")
+			session:sendpcm(pcm, "再见！")
 		end
-		for _, dat in ipairs(session.speak_buf) do
-			sock:write(dat.content, dat.type)
-		end
-		core.sleep(64*(#session.speak_buf + 1))
-		session:sendjson({type = "tts", state = "stop", session_id = session.session_id})
 		session.closed = true
-		logger.info("[xiaozhi] clear", #session.speak_buf)
+		logger.info("[xiaozhi] clear")
 	end
 }
 

@@ -52,6 +52,7 @@ public:
 		has_voice = false;
 		silence_ms = -1;
 		iterator.reset();
+		vad_input_pcm.clear();
 		vad_speech_pcm.clear();
 		vad_context.clear();
 	}
@@ -235,6 +236,8 @@ static int lvoice_detect_opus(lua_State *L)
 			output_wav.push_back(static_cast<uint8_t>(value & 0xff));
 			output_wav.push_back(static_cast<uint8_t>(value >> 8));
 		}
+		vad->vad_context.clear();
+		vad->vad_input_pcm.clear();
 		vad->vad_speech_pcm.clear();
 		lua_pushlstring(L, (const char *)output_wav.data(), output_wav.size());
 	} else {
