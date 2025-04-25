@@ -12,9 +12,12 @@ local conf = require "conf"
 local memory = require "memory"
 local intent = require "intent"
 
+local assert = assert
 local pairs = pairs
 local ipairs = ipairs
 local remove = table.remove
+
+local vad_model_path = conf.vad.model_path
 
 local p = protoc:new()
 
@@ -46,7 +49,7 @@ end
 local function read_frames(file)
 	local f<close>, err = io.open(file, "rb")
 	if not f then
-		return
+		return nil
 	end
 	local dat = f:read("a")
 	local frames = pb.decode("xiaozhi.frames", dat)
@@ -57,12 +60,41 @@ local function read_frames(file)
 	return frames.list
 end
 
-local hello_opus = nil
+local opus_cache = setmetatable({}, {__index = function(t, k)
+	local path = "../audio/"..k..".pb"
+	local frames = read_frames(path)
+	if not frames then
+		local ttsx = tts.new()
+		local pcm, err = ttsx:txt_to_pcm(k)
+		if pcm then
+			local voice_ctx = voice.new {
+				model_path = vad_model_path,
+				min_silence_duration_ms = 100,
+			}
+			frames = voice.wrap_opus(voice_ctx, pcm)
+			save_frames(path, frames)
+		end
+	end
+	if frames then
+		t[k] = frames
+	end
+	return frames
+end})
 
+--[[
 do
-	hello_opus = read_frames("hello.opus")
+	local f<close> = io.open("audio/over.pcm", "rb")
+	if f then
+		local dat = f:read("a")
+		local vad_ctx = voice.new {
+			model_path = vad_model_path,
+			min_silence_duration_ms = 1500,
+		}
+		local opus = voice.wrap_opus(vad_ctx, dat)
+		save_frames("audio/over.pb", opus)
+	end
 end
-
+]]
 
 ---@class xiaozhi.session : session
 ---@field memory memory
@@ -86,8 +118,8 @@ local function voice_ctx_new()
 		voice.reset(ctx)
 	else
 		ctx = voice.new {
-			model_path = "models/silero_vad.onnx",
-			min_silence_duration_ms = 700,
+			model_path = vad_model_path,
+			min_silence_duration_ms = 1500,
 		}
 	end
 	return ctx
@@ -117,53 +149,44 @@ function xsession.new(uid, sock)
 	}, xsession_mt)
 	core.fork(function()
 		local remove = table.remove
-		local frames_in_device = 0
-		local last_send_time = time.now()  -- 初始化为当前时间
-		local frame_duration_ms = 60  -- Opus 一帧的持续时间(ms)
-		local max_buffer_frames = 10   -- 目标是保持设备缓冲区不超过 4 帧(给 5 帧缓冲区留出安全余量)
-
+		local last_send_time = time.now()
+		local device_frame_count = 0
 		while not s.closed or #s.speak_buf > 0 do
-		   	local list = remove(s.speak_buf, 1)
-		   	if list then
-				local now_ms = time.now()
-			        -- 计算自上次发送以来，设备消耗了多少帧
-			        if last_send_time > 0 and frames_in_device > 0 then
-			        	local elapsed_ms = now_ms - last_send_time
-			        	local consumed_frames = elapsed_ms / frame_duration_ms
-			        	frames_in_device = math.max(0, frames_in_device - consumed_frames)
-			        end
-				for _, dat in ipairs(list) do
-			            -- 如果缓冲区已满，等待直到有空间
-			            while frames_in_device >= max_buffer_frames do
-			                -- 等待一小段时间
-			                core.sleep(10)  -- 等待更小的时间单位，更精确地控制流量
-			                -- 更新当前时间和已消耗的帧数
-			                now_ms = time.now()
-			                local elapsed_ms = now_ms - last_send_time
-			                local consumed_frames = elapsed_ms / frame_duration_ms
-			                -- 更新设备中的帧数
-			                if consumed_frames > 0 then
-			                    frames_in_device = math.max(0, frames_in_device - consumed_frames)
-			                    last_send_time = now_ms
-			                    logger.debug("[xiaozhi] 缓冲区当前帧数: " .. string.format("%.2f", frames_in_device))
-			                end
-			            end
-			            -- 发送数据
-			            local ok = s.sock:write(dat.content, dat.type)
-			            if not ok then
-			                logger.error("[xiaozhi] write error")
-			                break
-			            end
-			            -- 只有二进制数据（Opus 帧）才计入缓冲区
-			            if dat.type == "binary" then
-			                frames_in_device = frames_in_device + 1
-			                last_send_time = time.now()  -- 更新最后发送时间
-			                logger.debug("[xiaozhi] 发送帧，当前缓冲区: " .. string.format("%.2f", frames_in_device))
-			            end
-			        end
+			local dat = remove(s.speak_buf, 1)
+			if dat then
+				if dat.type == "text" then
+					s.sock:write(dat.content, dat.type)
+				else
+					-- 处理二进制数据
+					local nowms = time.now()
+					local elapsed = nowms - last_send_time
+					device_frame_count = device_frame_count - elapsed//60
+					local adjust = elapsed%60
+					if device_frame_count > 28 then
+						local wait_time = (device_frame_count - 2) * 60 - adjust
+						local before_sleep = time.now()
+						if wait_time > 0 then
+							core.sleep(wait_time)
+						end
+						local actual_sleep = time.now() - before_sleep
+						adjust = actual_sleep%60
+						device_frame_count = device_frame_count - actual_sleep//60
+					end
+					if device_frame_count < 0 then
+						device_frame_count = 0
+					end
+					s.sock:write(dat.content, dat.type)
+					device_frame_count = device_frame_count + 1
+					last_send_time = time.now() - adjust
+					s.silence_start_time = time.nowsec()
+				end
 			else
-				core.sleep(10)
+				core.sleep(0)
 			end
+		end
+		if device_frame_count > 0 then
+			local wait_time = device_frame_count * 60
+			core.sleep(wait_time)
 		end
 		local voice_ctx = s.voice_ctx
 		if voice_ctx then
@@ -201,12 +224,16 @@ function xsession:write(data)
 end
 
 function xsession:stop()
-	local pcm_data, txt = self.tts:close()
+	local pcm_data, txt = tts:close()
 	if pcm_data then
 		self.pcm_data[#self.pcm_data + 1] = pcm_data
 		self:sendpcm(pcm_data, txt)
 	end
-
+	local opus = opus_cache["over"]
+	if opus then
+		self:sendopus(opus, "over")
+	end
+	--[[
 	local dat = table.concat(self.pcm_data)
 	local f<close> = io.open("xiaozhi.pcm", "wb")
 	if not f then
@@ -215,6 +242,7 @@ function xsession:stop()
 	end
 	f:write(dat)
 	f:close()
+	]]
 
 	self:sendjson({type = "tts", state = "stop", session_id = self.session_id})
 end
@@ -226,7 +254,7 @@ end
 
 function xsession.sendjson(self, obj)
 	local sb = self.speak_buf
-	sb[#sb + 1] = {{content = json.encode(obj), type = "text"}}
+	sb[#sb + 1] = {content = json.encode(obj), type = "text"}
 end
 
 function xsession.sendopus(self, opus_datas, txt)
@@ -239,14 +267,11 @@ function xsession.sendopus(self, opus_datas, txt)
 		text = txt,
 		session_id = self.session_id
 	}
-	local list = {
-		{content = json.encode(start), type = "text"},
-	}
-	for i, dat in ipairs(opus_datas) do
-		list[#list + 1] = {content = dat, type = "binary"}
-	end
 	local sb = self.speak_buf
-	sb[#sb + 1] = list
+	sb[#sb+1] = {content = json.encode(start), type = "text"}
+	for i, dat in ipairs(opus_datas) do
+		sb[#sb+ 1] = {content = dat, type = "binary"}
+	end
 end
 
 function xsession.sendpcm(self, pcm_data, txt)
@@ -290,20 +315,8 @@ function router.listen(session, req)
 		session:sendjson({type = "llm", text = "😊", emotion = "happy", session_id = session.session_id})
 		session:sendjson({type = "tts", state = "sentence_start", text = "你好呀，混沌！今天有什么新鲜事儿吗？", session_id = session.session_id})
 		session.speak_buf = {}
-		local tts = session.tts
-		local prompt = "你好呀，混沌！"
-		if not hello_opus then
-			local opus, txt = tts:speak(prompt)
-			hello_opus = opus
-			save_frames("hello.opus", hello_opus)
-		end
-		session:sendopus(hello_opus, prompt)
-		local pcm_data, txt = tts:close()
-		if not pcm_data then
-			logger.error("[xiaozhi] failed to close tts")
-			return nil
-		end
-		session:sendpcm(pcm_data, txt)
+		local opus = opus_cache["你好呀!"]
+		session:sendopus(opus, "你好呀！")
 		session:sendjson({type = "tts", state = "stop", session_id = session.session_id})
 	end
 end
@@ -328,7 +341,6 @@ end
 ---@param session xiaozhi.session
 ---@return boolean, string? error
 local function vad_detect(session, dat)
-	logger.info("xiaozhi", "binary", #dat)
 	local voice_ctx = session.voice_ctx
 	if not voice_ctx then
 		logger.error("[xiaozhi] voice context not found")
@@ -365,6 +377,8 @@ local function vad_detect(session, dat)
 	session.chat(session, txt)
 	if intent.over(txt) then
 		session.state = STATE_CLOSE
+	else
+		session.state = STATE_LISTENING
 	end
 	return true, nil
 end
@@ -372,39 +386,54 @@ end
 local server, err = websocket.listen {
 	addr = conf.xiaozhi_listen,
 	handler = function(sock)
-	local session = xsession.new(1, sock)
-	while session.state ~= STATE_CLOSE do
-		local dat, typ = sock:read()
-		if not dat then
-			break
-		end
-		if typ == "close" then
-			sock:close()
-			break
-		end
-		if typ == "text" then
-			local req = json.decode(dat)
-			if not req then
-				sock:write("error", "invalid request")
+		local session = xsession.new(1, sock)
+		while session.state ~= STATE_CLOSE do
+			local dat, typ = sock:read()
+			if not dat then
+				break
+			end
+			if typ == "close" then
 				sock:close()
 				break
 			end
-			router[req.type](session, req)
-		elseif typ == "binary" then
-			if session.state == STATE_LISTENING then
-				local ok, err = vad_detect(session, dat)
-				if not ok then
-					logger.error("[xiaozhi] vad detect error", err)
-					session.state = STATE_IDLE
-					session:sendjson({type = "tts", state = "stop", session_id = session.session_id})
-					session:sendjson({type = "tts", state = "stop", session_id = session.session_id})
+			if typ == "text" then
+				local req = json.decode(dat)
+				if not req then
+					sock:write("error", "invalid request")
+					sock:close()
+					break
+				end
+				router[req.type](session, req)
+			elseif typ == "binary" then
+				if session.state == STATE_LISTENING then
+					local ok, err = vad_detect(session, dat)
+					if not ok then
+						logger.error("[xiaozhi] vad detect error", err)
+						session.state = STATE_IDLE
+						session:sendjson({type = "tts", state = "stop", session_id = session.session_id})
+					end
 				end
 			end
 		end
+		session:sendjson({
+			type = "tts",
+			state = "start",
+			sample_rate = 16000,
+			session_id = session.session_id,
+			text = "",
+		})
+		local opus = opus_cache["再见！"]
+		if opus then
+			session:sendopus(opus, "再见！")
+		end
+		for _, dat in ipairs(session.speak_buf) do
+			sock:write(dat.content, dat.type)
+		end
+		core.sleep(64*(#session.speak_buf + 1))
+		session:sendjson({type = "tts", state = "stop", session_id = session.session_id})
+		session.closed = true
+		logger.info("[xiaozhi] clear", #session.speak_buf)
 	end
-	session.closed = true
-	logger.info("[xiaozhi] stop")
-end
 }
 
 logger.info("[xiaozhi] listen on", conf.xiaozhi_listen)

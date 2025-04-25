@@ -37,7 +37,7 @@ local function tts(text)
 	end
 	local ssml =
 	    "<speak version='1.0' xml:lang='zh-CN'>\z
-		<voice xml:lang='zh-CN' xml:gender='Female' name='zh-CN-XiaoyouNeural'><prosody rate='+10%'>\z"
+		<voice xml:lang='zh-CN' xml:gender='Female' name='zh-CN-XiaoyouNeural'><prosody rate='+20%'>\z"
 		.. text ..
 		"</prosody></voice>\z
 	</speak>"

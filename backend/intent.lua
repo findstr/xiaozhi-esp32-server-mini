@@ -66,18 +66,15 @@ function M.agent(message)
 		{ role = "system", content = format(sys_prompt, agent_desc) },
 		{ role = "user",   content = format(usr_prompt, message) },
 	}
-	print("intent1")
 	local ai <close>, err = openai.open(model_conf, {
 		messages = messages,
 		temperature = 0.7,
 	})
-	print("intent2")
 	if not ai then
 		logger.error("[intent] openai open failed: %s", err)
 		return false, err
 	end
 	local result, err = ai:read()
-	print("intent3")
 	if not result then
 		logger.errorf("[intent] openai read failed: %s", err)
 		return false, err

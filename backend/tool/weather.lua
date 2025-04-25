@@ -38,13 +38,16 @@ local function weather(session, args)
 		logger.errorf("[weather] get weather: %s failed: %s", url, body)
 		return {error = "get weather failed"}
 	end
+	logger.debugf("[weather] get weather: %s", body)
 	local data = json.decode(body)
 	if not data then
 		logger.errorf("[weather] decode failed: %s", body)
 		return {error = "decode failed"}
 	end
 	return {
-		desc = "请根据天气情况，调整孩子的穿着和活动安排。",
+		desc = "每小时天气",
+		lng = loc.lng,
+		lat = loc.lat,
 		city = loc.city,
 		hourly = data.hourly,
 	}
@@ -61,10 +64,6 @@ local tool = {
 				parameters = {
 					type = "object",
 					properties = {
-						city = {
-							type = "string",
-							description = "城市名称",
-						},
 					},
 					required = {},
 				},

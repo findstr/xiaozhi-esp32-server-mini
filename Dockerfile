@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y build-essential wget && rm -rf /var/lib
 WORKDIR /app
 COPY backend/ ./backend
 COPY models/ ./models
+COPY audio/ ./audio
 
 # 如果 Makefile 存在构建逻辑，可以启用这行：
 WORKDIR /app/backend

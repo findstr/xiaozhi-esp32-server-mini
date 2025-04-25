@@ -84,7 +84,7 @@ function M:speak(txt)
 		x = #buf + 1
 	end
 	if not x then
-		return nil, nil
+		return nil, "no end of sentence"
 	end
 	local try_to_use = buf:sub(1, x-1)
 	if len(try_to_use) < self.min_char then
@@ -92,7 +92,11 @@ function M:speak(txt)
 	end
 	self.min_char = max_char
 	self.buf = buf:sub(x)
-	return self:txt_to_pcm(try_to_use, false), try_to_use
+	local pcm, err = self:txt_to_pcm(try_to_use, false)
+	if not pcm then
+		return nil, err
+	end
+	return pcm, try_to_use
 end
 
 return M
