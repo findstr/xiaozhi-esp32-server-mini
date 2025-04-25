@@ -27,74 +27,42 @@ local STATE_LISTENING = "listening"
 local STATE_SPEAKING = "speaking"
 local STATE_CLOSE = "close"
 
-p:load[[
-syntax = "proto3";
-package xiaozhi;
-
-message frames {
-	repeated bytes list = 1;
-}
-]]
-
-local function save_frames(file, frames)
+local function save_pcm(file, dat)
 	local f<close>, err = io.open(file, "wb")
 	if not f then
 		logger.error("[xiaozhi] failed to open audio.bin", err)
 		return
 	end
-	local dat = pb.encode("xiaozhi.frames", {list = frames})
 	f:write(dat)
 end
 
-local function read_frames(file)
+local function read_pcm(file)
 	local f<close>, err = io.open(file, "rb")
 	if not f then
 		return nil
 	end
 	local dat = f:read("a")
-	local frames = pb.decode("xiaozhi.frames", dat)
-	if not frames then
-		logger.error("[xiaozhi] failed to decode audio.bin")
-		return
-	end
-	return frames.list
+	return dat
 end
 
-local opus_cache = setmetatable({}, {__index = function(t, k)
-	local path = "../audio/"..k..".pb"
-	local frames = read_frames(path)
-	if not frames then
+local pcm_cache = setmetatable({}, {__index = function(t, k)
+	local path = "../audio/"..k..".pcm"
+	local pcm = read_pcm(path)
+	if not pcm then
+		local err
 		local ttsx = tts.new()
-		local pcm, err = ttsx:txt_to_pcm(k)
+		pcm, err = ttsx:txt_to_pcm(k)
 		if pcm then
-			local voice_ctx = voice.new {
-				model_path = vad_model_path,
-				min_silence_duration_ms = 100,
-			}
-			frames = voice.wrap_opus(voice_ctx, pcm)
-			save_frames(path, frames)
+			save_pcm(path, pcm)
+		else
+			logger.error("[xiaozhi] failed to convert text to pcm", err)
 		end
 	end
-	if frames then
-		t[k] = frames
+	if pcm then
+		t[k] = pcm
 	end
-	return frames
+	return pcm
 end})
-
---[[
-do
-	local f<close> = io.open("audio/over.pcm", "rb")
-	if f then
-		local dat = f:read("a")
-		local vad_ctx = voice.new {
-			model_path = vad_model_path,
-			min_silence_duration_ms = 1500,
-		}
-		local opus = voice.wrap_opus(vad_ctx, dat)
-		save_frames("audio/over.pb", opus)
-	end
-end
-]]
 
 ---@class xiaozhi.session : session
 ---@field memory memory
@@ -229,9 +197,9 @@ function xsession:stop()
 		self.pcm_data[#self.pcm_data + 1] = pcm_data
 		self:sendpcm(pcm_data, txt)
 	end
-	local opus = opus_cache["over"]
-	if opus then
-		self:sendopus(opus, "over")
+	local pcm = pcm_cache["over"]
+	if pcm then
+		self:sendpcm(pcm, "over")
 	end
 	--[[
 	local dat = table.concat(self.pcm_data)
@@ -301,7 +269,6 @@ end
 function router.listen(session, req)
 	if req.state == "start" then
 		session.state = STATE_LISTENING
-		session.speak_buf = {}
 		voice.reset(session.voice_ctx)
 		session.silence_start_time = time.nowsec()
 		logger.info("xiaozhi", "start listening")
@@ -310,14 +277,14 @@ function router.listen(session, req)
 		logger.info("xiaozhi", "stop listening")
 	elseif req.state == "detect" then
 		logger.info("xiaozhi", "detect")
-		session:sendjson({type = "tts", state = "start", sample_rate = 24000, session_id = session.session_id, text = "开始检测"})
 		session:sendjson({type = "stt", text = "小智", session_id = session.session_id})
 		session:sendjson({type = "llm", text = "😊", emotion = "happy", session_id = session.session_id})
-		session:sendjson({type = "tts", state = "sentence_start", text = "你好呀，混沌！今天有什么新鲜事儿吗？", session_id = session.session_id})
-		session.speak_buf = {}
-		local opus = opus_cache["你好呀!"]
-		session:sendopus(opus, "你好呀！")
+		session:sendjson({type = "tts", state = "start", sample_rate = 24000, session_id = session.session_id, text = "开始检测"})
+		core.sleep(10)
+		local pcm = pcm_cache["你好呀！"]
+		session:sendpcm(pcm, "你好呀！")
 		session:sendjson({type = "tts", state = "stop", session_id = session.session_id})
+		core.sleep(1000)
 	end
 end
 
@@ -422,9 +389,9 @@ local server, err = websocket.listen {
 			session_id = session.session_id,
 			text = "",
 		})
-		local opus = opus_cache["再见！"]
-		if opus then
-			session:sendopus(opus, "再见！")
+		local pcm = pcm_cache["再见！"]
+		if pcm then
+			session:sendopus(pcm, "再见！")
 		end
 		for _, dat in ipairs(session.speak_buf) do
 			sock:write(dat.content, dat.type)
