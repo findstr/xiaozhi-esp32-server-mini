@@ -12,9 +12,10 @@
 #define VAD_WINDOW_MS		32
 #define VAD_WINDOW_SAMPLES	(VAD_WINDOW_MS * OPUS_SAMPLE_RATE / 1000)
 #define VAD_PRE_FRAMES		5
-#define VAD_POST_FRAMES		30
+#define VAD_POST_FRAMES		1
 #define VAD_PRE_SAMPLES		(VAD_PRE_FRAMES * OPUS_SAMPLE_RATE * OPUS_FRAME_MS / 1000)
 #define MAX_OPUS_PACKET_SIZE 	(1275 * 3 + 7)
+
 struct voice_conf {
 	const char *model_path;
 	int sample_rate;
@@ -185,7 +186,6 @@ static int lvoice_reset(lua_State *L)
 static int lvoice_detect_opus(lua_State *L)
 {
 	size_t len;
-	bool hasVoice = false;
 	int keep_samples = VAD_PRE_SAMPLES + OPUS_FRAME_SAMPLES;
 	lvoice *vad = (lvoice *)luaL_checkudata(L, 1, VAD_TNAME);
 	const char *data = luaL_checklstring(L, 2, &len); // 16-bit PCM data
@@ -194,34 +194,34 @@ static int lvoice_detect_opus(lua_State *L)
 		luaL_error(L, "opus_decode failed: %d", opus_strerror(error));
 	}
 	while (vad->vad_input_pcm.size() > VAD_WINDOW_SAMPLES) {
+		bool has_voice = false;
 		std::vector<float> chunk(vad->vad_input_pcm.begin(), vad->vad_input_pcm.begin() + VAD_WINDOW_SAMPLES);
-		vad->vad_context.insert(vad->vad_context.end(), chunk.begin(), chunk.end());
-		if (vad->vad_context.size() > keep_samples) { // 如果缓冲区大于keep_samples，则删除前面多余的samples
-			int erase_samples = vad->vad_context.size() - keep_samples;
-			vad->vad_context.erase(vad->vad_context.begin(), vad->vad_context.begin() + erase_samples);
+		vad->vad_input_pcm.erase(vad->vad_input_pcm.begin(), vad->vad_input_pcm.begin() + VAD_WINDOW_SAMPLES);
+		if (!vad->has_voice) {
+			vad->vad_context.insert(vad->vad_context.end(), chunk.begin(), chunk.end());
+			if (vad->vad_context.size() > keep_samples) { // 如果缓冲区大于keep_samples，则删除前面多余的samples
+				int erase_samples = vad->vad_context.size() - keep_samples;
+				vad->vad_context.erase(vad->vad_context.begin(), vad->vad_context.begin() + erase_samples);
+			}
 		}
-		hasVoice = vad->iterator.predict(chunk);
-		if (!vad->has_voice && hasVoice) { // 语音的开始
+		has_voice = vad->iterator.predict(chunk);
+		if (!vad->has_voice && has_voice) { // 语音的开始
 			vad->silence_ms = -1;
 			vad->has_voice = true;
 			vad->vad_speech_pcm.insert(vad->vad_speech_pcm.end(),
 				vad->vad_context.begin(), vad->vad_context.end());
 			vad->vad_context.clear();
-		} else if (vad->has_voice && !hasVoice) { //语音的结束
-			vad->has_voice = false;
 			vad->silence_ms = 0;
-		} else if (vad->has_voice && hasVoice) { // 语音的持续
-			vad->vad_speech_pcm.insert(vad->vad_speech_pcm.end(),
-				chunk.begin(), chunk.end());
-		} else if (!hasVoice && vad->silence_ms >= 0) { // 语音结束后收尾
-			vad->silence_ms += VAD_WINDOW_MS;
-			if (vad->silence_ms > vad->max_silence_ms) {
-				break;
+		} else if (vad->has_voice) {
+			if (!has_voice) { // 语音的结束
+				vad->silence_ms += VAD_WINDOW_MS;
 			}
 			vad->vad_speech_pcm.insert(vad->vad_speech_pcm.end(),
 				chunk.begin(), chunk.end());
+			if (vad->silence_ms > vad->max_silence_ms) {
+				break;
+			}
 		}
-		vad->vad_input_pcm.erase(vad->vad_input_pcm.begin(), vad->vad_input_pcm.begin() + VAD_WINDOW_SAMPLES);
 	}
 	if (vad->silence_ms >= vad->max_silence_ms) {
 		std::vector<uint8_t> output_wav;
@@ -236,6 +236,7 @@ static int lvoice_detect_opus(lua_State *L)
 			output_wav.push_back(static_cast<uint8_t>(value & 0xff));
 			output_wav.push_back(static_cast<uint8_t>(value >> 8));
 		}
+		vad->has_voice = false;
 		vad->vad_context.clear();
 		vad->vad_input_pcm.clear();
 		vad->vad_speech_pcm.clear();

@@ -6,18 +6,12 @@ local tts = require ("tts." .. conf.tts.use)
 
 local setmetatable = setmetatable
 local len = utf8.len
-local min_char<const> = 5
-local max_char<const> = 32
+local min_char<const> = 8
+local max_char<const> = 16
 
+---@class tts
 local M = {}
-local mt = {__index = M, __gc = function(t)
-	local stream = t.stream
-	if stream then
-		stream:close()
-		t.stream = nil
-		logger.debug("[tts] gc close stream")
-	end
-end}
+local mt = {__index = M}
 
 function M.new()
 	return setmetatable({
@@ -40,17 +34,12 @@ end
 
 function M:rate_limit()
 	local nowms = time.now()
-	if nowms < self.last_tts_time + 300 then
-		core.sleep(self.last_tts_time + 300 - nowms)
+	if nowms < self.last_tts_time + 500 then
+		core.sleep(self.last_tts_time + 500 - nowms)
 	end
 end
 
 function M:flush()
-	local stream = self.stream
-	if not stream then
-		logger.error("[tts] close stream is nil")
-		return nil
-	end
 	local buf = self.buf
 	local pcm_data = self:txt_to_pcm(buf, true)
 	self.buf = ""

@@ -10,8 +10,6 @@ local conf = require "conf"
 local memory = require "memory"
 local intent = require "intent"
 
-local assert = assert
-local pairs = pairs
 local ipairs = ipairs
 local remove = table.remove
 
@@ -66,6 +64,7 @@ end})
 ---@field state xiaozhi.state
 ---@field remote_addr string
 ---@field sock core.http.websocket
+---@field tts tts
 ---@field session_id string
 ---@field chat? function(session, string):boolean
 ---@field closed boolean
@@ -127,7 +126,6 @@ function xsession:write(data)
 	if self.state ~= STATE_SPEAKING then
 		return false
 	end
-	--print("write", data)
 	local pcm_data, txt = self.tts:speak(data)
 	if not pcm_data then
 		return true
@@ -138,7 +136,7 @@ function xsession:write(data)
 end
 
 function xsession:stop()
-	local pcm_data, txt = tts:flush()
+	local pcm_data, txt = self.tts:flush()
 	if pcm_data then
 		self.pcm_data[#self.pcm_data + 1] = pcm_data
 		self:sendpcm(pcm_data, txt)
@@ -199,7 +197,7 @@ local function sendopus(self, opus_datas, txt)
 end
 
 function xsession.sendpcm(self, pcm_data, txt)
-	if not pcm_data then
+	if not pcm_data or #pcm_data == 0 then
 		return
 	end
 	local voice_ctx = self.voice_ctx
@@ -344,6 +342,7 @@ local server, err = websocket.listen {
 		if pcm then
 			session:sendpcm(pcm, "再见！")
 		end
+		core.sleep(1000)
 		session.closed = true
 		logger.info("[xiaozhi] clear")
 	end
