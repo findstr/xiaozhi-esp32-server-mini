@@ -6,8 +6,8 @@ local tts = require ("tts." .. conf.tts.use)
 
 local setmetatable = setmetatable
 local len = utf8.len
-local min_char<const> = 8
-local max_char<const> = 16
+local min_char<const> = 5
+local max_char<const> = 10
 
 ---@class tts
 local M = {}
@@ -40,6 +40,7 @@ function M:rate_limit()
 end
 
 function M:flush()
+	self.min_char = min_char
 	local buf = self.buf
 	local pcm_data = self:txt_to_pcm(buf, true)
 	self.buf = ""

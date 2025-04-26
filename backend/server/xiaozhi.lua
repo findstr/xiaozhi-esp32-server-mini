@@ -225,10 +225,10 @@ function router.listen(session, req)
 		session.state = STATE_LISTENING
 		voice.reset(session.voice_ctx)
 		session.silence_start_time = time.nowsec()
-		logger.info("xiaozhi", "start listening")
+		logger.info("xiaozhi state:", "listening")
 	elseif req.state == "stop" then
 		session.state = STATE_IDLE
-		logger.info("xiaozhi", "stop listening")
+		logger.info("xiaozhi state", "idle")
 	elseif req.state == "detect" then
 		logger.info("xiaozhi", "detect")
 		session:sendjson({type = "stt", text = "小智", session_id = session.session_id})
@@ -242,8 +242,9 @@ function router.listen(session, req)
 end
 
 function router.abort(session, req)
-	session.state = STATE_LISTENING
+	session.state = STATE_IDLE
 	session:sendjson({type = "tts", state = "stop", session_id = session.session_id})
+	logger.info("xiaozhi state", "idle")
 end
 
 function router.iot(ctx, req)
@@ -261,6 +262,7 @@ local function vad_detect(session, dat)
 	if not voice_ctx then
 		logger.error("[xiaozhi] voice context not found")
 		session.state = STATE_IDLE
+		logger.info("xiaozhi state", "idle")
 		session:sendjson({type = "tts", state = "stop", session_id = session.session_id})
 		return false, "vad stream not found"
 	end
@@ -280,22 +282,29 @@ local function vad_detect(session, dat)
 		if session.silence_start_time + conf.exit_after_silence_seconds < now then
 			logger.infof("xiaozhi already silence %s seconds", now - session.silence_start_time)
 			session.state = STATE_CLOSE
+			logger.info("xiaozhi state", "close")
 		end
 		return true, nil
 	end
 	logger.infof("[xiaozhi] vad str:%s", txt)
 	session:sendjson({type = "stt", text = txt, session_id = session.session_id})
 	session.state = STATE_SPEAKING
-	local chat = session.chat
-	if not chat then
-		session.chat = intent.agent(txt)
-	end
-	session.chat(session, txt)
-	if intent.over(txt) then
-		session.state = STATE_CLOSE
-	else
-		session.state = STATE_LISTENING
-	end
+	logger.info("xiaozhi state", "speaking")
+	core.fork(function()
+		local chat = session.chat
+		if not chat then
+			session.chat = intent.agent(txt)
+		end
+		session.chat(session, txt)
+		if intent.over(txt) then
+			session.state = STATE_CLOSE
+			logger.info("xiaozhi state", "close")
+		else
+			session.state = STATE_LISTENING
+			voice.reset(session.voice_ctx)
+			logger.info("xiaozhi state", "listening")
+		end
+	end)
 	return true, nil
 end
 

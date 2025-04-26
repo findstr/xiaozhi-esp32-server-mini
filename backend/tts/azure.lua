@@ -48,12 +48,13 @@ local function tts(text)
 		["authorization"] = token,
 		["user-agent"] = "xiaozhi",
 	}
+	logger.debugf("[tts.azure] tts text:`%s` start", text)
 	local res, err = http.POST(api_url, headers, ssml)
 	if not res then
 		logger.error("[tts.azure] tts failed, err:", err)
 		return nil, err
 	end
-	print("tts", text, "status:", res.status, "body:", #res.body)
+	logger.debugf("[tts.azure] tts stop status:%s res.status, body:%s", res.status, #res.body)
 	return res.body, nil
 end
 
