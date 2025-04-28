@@ -1,6 +1,7 @@
 local core = require "core"
 local time = require "core.time"
 local json = require "core.json"
+local channel = require "core.sync.channel"
 local logger = require "core.logger"
 local websocket = require "core.websocket"
 local voice = require "voice.vad"
@@ -11,6 +12,7 @@ local memory = require "memory"
 local intent = require "intent"
 
 local ipairs = ipairs
+local concat = table.concat
 local remove = table.remove
 
 local vad_model_path = conf.vad.model_path
@@ -43,13 +45,16 @@ local pcm_cache = setmetatable({}, {__index = function(t, k)
 	local path = "../audio/"..k..".pcm"
 	local pcm = read_pcm(path)
 	if not pcm then
-		local err
+		local buf = {}
 		local ttsx = tts.new()
-		pcm, err = ttsx:txt_to_pcm(k)
-		if pcm then
-			save_pcm(path, pcm)
-		else
-			logger.error("[xiaozhi] failed to convert text to pcm", err)
+		local ok = ttsx:txt_to_pcm(k, nil, function(pcm)
+			buf[#buf + 1] = pcm
+		end)
+		if #buf > 0 then
+			save_pcm(path, concat(buf))
+		end
+		if not ok then
+			logger.error("[xiaozhi] failed to convert text to pcm", k)
 		end
 	end
 	if pcm then
@@ -63,14 +68,16 @@ end})
 ---@field voice_ctx userdata
 ---@field state xiaozhi.state
 ---@field remoteaddr string
----@field sock core.http.websocket
+---@field sock core.websocket.socket
 ---@field tts tts
 ---@field session_id string
 ---@field chat? function(session, string):boolean
----@field closed boolean
 ---@field silence_start_time integer
 ---@field last_send_time integer
----@field device_frame_count integer
+---@field channel_data core.sync.channel
+---@field channel_close core.sync.channel
+---@field txt_cb fun(txt: string)
+---@field pcm_cb fun(pcm: string)
 local xsession = {}
 local xsession_mt = {__index = xsession}
 
@@ -89,10 +96,46 @@ local function voice_ctx_new()
 	return ctx
 end
 
+local function pcm_cb(session)
+	return function(pcm)
+		session.pcm_data[#session.pcm_data + 1] = pcm
+		local voice_ctx = session.voice_ctx
+		if not voice_ctx then
+			logger.error("[xiaozhi] voice context not found")
+			return
+		end
+		local list = voice.wrap_opus(voice_ctx, pcm, true)
+		if not list then
+			logger.info("[xiaozhi] don't has pcm data")
+			return
+		end
+		local channel = session.channel_data
+		for _, opus in ipairs(list) do
+			channel:push {
+				type = "opus",
+				data = opus,
+			}
+		end
+	end
+end
+
+local function txt_cb(session)
+	return function(txt)
+		session.channel_data:push {
+			type = "tts",
+			state = "sentence_start",
+			text = txt,
+			session_id = session.session_id,
+		}
+	end
+end
+
 ---@param uid number
----@param sock core.http.websocket
+---@param sock core.websocket.socket
 ---@return xiaozhi.session
 function xsession.new(uid, sock)
+	local channel_data = channel.new()
+	local channel_close= channel.new()
 	local s = setmetatable({
 		memory = memory.new(uid),
 		state = STATE_IDLE,
@@ -106,7 +149,38 @@ function xsession.new(uid, sock)
 		silence_start_time = math.maxinteger,
 		last_send_time = time.now(),
 		device_frame_count = 0,
+		channel_data = channel_data,
+		channel_close = channel_close,
+		txt_cb = nil,
+		pcm_cb = nil,
 	}, xsession_mt)
+	s.txt_cb = txt_cb(s)
+	s.pcm_cb = pcm_cb(s)
+	core.fork(function()
+		local need_sleep = 0
+		while true do
+			local dat = channel_data:pop()
+			if not dat then
+				break
+			end
+			if dat.type == "opus" then
+				s.silence_start_time = time.nowsec()
+				s.sock:write(dat.data, "binary")
+				need_sleep = need_sleep + 60
+				if need_sleep > 1200 then
+					local now = time.now()
+					core.sleep(600)
+					local elapsed = time.now() - now
+					need_sleep = need_sleep -  elapsed
+				end
+			elseif dat.type == "ctrl" then
+				s.state = dat.state
+			else
+				s.sock:write(json.encode(dat), "text")
+			end
+		end
+		channel_close:close()
+	end)
 	return s
 end
 
@@ -126,24 +200,19 @@ function xsession:write(data)
 	if self.state ~= STATE_SPEAKING then
 		return false
 	end
-	local pcm_data, txt = self.tts:speak(data)
-	if not pcm_data then
+	local ok = self.tts:speak(data, self.txt_cb, self.pcm_cb)
+	if not ok then
 		return true
 	end
-	self.pcm_data[#self.pcm_data + 1] = pcm_data
-	self:sendpcm(pcm_data, txt)
 	return true
 end
 
 function xsession:stop()
-	local pcm_data, txt = self.tts:flush()
-	if pcm_data then
-		self.pcm_data[#self.pcm_data + 1] = pcm_data
-		self:sendpcm(pcm_data, txt)
-	end
+	self.tts:flush(self.txt_cb, self.pcm_cb)
 	local pcm = pcm_cache["over"]
 	if pcm then
-		self:sendpcm(pcm, "over")
+		self.txt_cb("over")
+		self.pcm_cb(pcm)
 	end
 	--[[
 	local dat = table.concat(self.pcm_data)
@@ -165,8 +234,14 @@ end
 
 
 function xsession.sendjson(self, obj)
-	local txt = json.encode(obj)
-	self.sock:write(txt, "text")
+	self.channel_data:push(obj)
+end
+
+function xsession.setstate(self, state)
+	self.channel_data:push {
+		type = "ctrl",
+		state = state,
+	}
 end
 
 local function sendopus(self, opus_datas, txt)
@@ -220,9 +295,11 @@ function router.hello(session, req)
 	session:sendjson({type = "llm", emotion = "happy", text = "😀"})
 end
 
+---@param session xiaozhi.session
 function router.listen(session, req)
 	if req.state == "start" then
-		session.state = STATE_LISTENING
+		session.channel_data:clear()
+		session:setstate(STATE_LISTENING)
 		voice.reset(session.voice_ctx)
 		session.silence_start_time = time.nowsec()
 		logger.info("xiaozhi state:", "listening")
@@ -231,12 +308,14 @@ function router.listen(session, req)
 		logger.info("xiaozhi state", "idle")
 	elseif req.state == "detect" then
 		logger.info("xiaozhi", "detect")
+		session.channel_data:clear()
 		session:sendjson({type = "stt", text = "小智", session_id = session.session_id})
 		session:sendjson({type = "llm", text = "😊", emotion = "happy", session_id = session.session_id})
 		session:sendjson({type = "tts", state = "start", sample_rate = 24000, session_id = session.session_id, text = "开始检测"})
 		core.sleep(50)
 		local pcm = pcm_cache["你好呀！"]
-		session:sendpcm(pcm, "你好呀！")
+		session.txt_cb("你好呀！")
+		session.pcm_cb(pcm)
 		session:sendjson({type = "tts", state = "stop", session_id = session.session_id})
 	end
 end
@@ -318,14 +397,11 @@ local server, err = websocket.listen {
 				break
 			end
 			if typ == "close" then
-				sock:close()
 				break
 			end
 			if typ == "text" then
 				local req = json.decode(dat)
 				if not req then
-					sock:write("error", "invalid request")
-					sock:close()
 					break
 				end
 				router[req.type](session, req)
@@ -334,8 +410,8 @@ local server, err = websocket.listen {
 					local ok, err = vad_detect(session, dat)
 					if not ok then
 						logger.error("[xiaozhi] vad detect error", err)
-						session.state = STATE_IDLE
 						session:sendjson({type = "tts", state = "stop", session_id = session.session_id})
+						session:setstate(STATE_IDLE)
 					end
 				end
 			end
@@ -349,10 +425,11 @@ local server, err = websocket.listen {
 		})
 		local pcm = pcm_cache["再见！"]
 		if pcm then
-			session:sendpcm(pcm, "再见！")
+			session.txt_cb("再见！")
+			session.pcm_cb(pcm)
 		end
-		core.sleep(1000)
-		session.closed = true
+		session.channel_close:pop()
+		core.sleep(500)
 		logger.info("[xiaozhi] clear")
 	end
 }

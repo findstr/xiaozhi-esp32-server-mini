@@ -30,10 +30,13 @@ local function get_token()
 	return token
 end
 
-local function tts(text)
+---@param text string
+---@param pcm_cb fun(pcm: string)
+local function tts(text, pcm_cb)
 	local token = get_token()
 	if not token then
-		return nil, "get token failed"
+		logger.error("[tts.azure] get token failed")
+		return false
 	end
 	local ssml =
 	    "<speak version='1.0' xml:lang='zh-CN'>\z
@@ -52,10 +55,11 @@ local function tts(text)
 	local res, err = http.POST(api_url, headers, ssml)
 	if not res then
 		logger.error("[tts.azure] tts failed, err:", err)
-		return nil, err
+		return false
 	end
 	logger.debugf("[tts.azure] tts stop status:%s res.status, body:%s", res.status, #res.body)
-	return res.body, nil
+	pcm_cb(res.body)
+	return true
 end
 
 return tts

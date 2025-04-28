@@ -37,53 +37,20 @@ require "server.web"
 require "server.xiaozhi"
 
 --[[
-local voice = require "voice.mpg123"
-local file, err = io.open("output.mp3", "rb")
-if not file then
-	logger.errorf("[main] open file error: %s", err)
-	return
-end
-local mp3 = file:read("*a")
-file:close()
+local tts = require "tts.edge"
+local buf = {}
 
-local vad = voice.new()
-local buffer = {}
-for i = 1, #mp3, 64 do
-	local e = i + 63
-	if e > #mp3 then
-		e = #mp3
-	end
-	local ctx = mp3:sub(i, e)
-	local pcm = voice.mp3topcm(vad, ctx)
-	if pcm then
-		table.insert(buffer, pcm)
-	end
-end
-
-voice.reset(vad)
-buffer = {}
-for i = 1, #mp3, 64 do
-	local e = i + 63
-	if e > #mp3 then
-		e = #mp3
-	end
-	local ctx = mp3:sub(i, e)
-	local pcm = voice.mp3topcm(vad, ctx)
-	if pcm then
-		table.insert(buffer, pcm)
-	end
-end
-
+tts("床前明月光，疑是地上霜。举头望明月，低头思故乡。", function(pcm)
+	buf[#buf + 1] = pcm
+end)
 
 local file, err = io.open("output.pcm", "wb")
 if not file then
 	logger.errorf("[main] open file error: %s", err)
 	return
 end
-local pcm = table.concat(buffer, "")
-print(#pcm)
+local pcm = table.concat(buf, "")
+print("PCM:", #pcm)
 file:write(pcm)
 file:close()
-
-
 ]]
