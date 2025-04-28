@@ -3,7 +3,7 @@ local time = require "core.time"
 local json = require "core.json"
 local logger = require "core.logger"
 local websocket = require "core.websocket"
-local voice = require "voice"
+local voice = require "voice.vad"
 local asr = require "asr"
 local tts = require "tts"
 local conf = require "conf"
@@ -62,7 +62,7 @@ end})
 ---@field memory memory
 ---@field voice_ctx userdata
 ---@field state xiaozhi.state
----@field remote_addr string
+---@field remoteaddr string
 ---@field sock core.http.websocket
 ---@field tts tts
 ---@field session_id string
@@ -97,7 +97,7 @@ function xsession.new(uid, sock)
 		memory = memory.new(uid),
 		state = STATE_IDLE,
 		sock = sock,
-		remote_addr = sock.stream.remote_addr,
+		remoteaddr = sock.stream.remoteaddr,
 		session_id = false,
 		voice_ctx = voice_ctx_new(),
 		tts = tts.new(),

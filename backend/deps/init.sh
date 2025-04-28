@@ -15,15 +15,15 @@ if [ ! -d "onnxruntime-linux-x64" ]; then
 	echo "Download finish onnxruntime-linux-x64-${ONNXRUNTIME_VERSION}.tgz"
 fi
 
-OPUS_VERSION=1.5.2
-if [ ! -d "opus" ]; then
-	echo "Download start opus-${OPUS_VERSION}.tar.gz"
-	wget https://ftp.osuosl.org/pub/xiph/releases/opus/opus-${OPUS_VERSION}.tar.gz
-	tar -xzf opus-${OPUS_VERSION}.tar.gz
-	rm opus-${OPUS_VERSION}.tar.gz
-	mv opus-${OPUS_VERSION} opus
-	cd opus
-	./configure
-	make
-	echo "Download finish opus-${OPUS_VERSION}.tar.gz"
-fi
+#OPUS_VERSION=1.5.2
+#if [ ! -d "opus" ]; then
+#	echo "Download start opus-${OPUS_VERSION}.tar.gz"
+#	wget https://ftp.osuosl.org/pub/xiph/releases/opus/opus-${OPUS_VERSION}.tar.gz
+#	tar -xzf opus-${OPUS_VERSION}.tar.gz
+#	rm opus-${OPUS_VERSION}.tar.gz
+#	mv opus-${OPUS_VERSION} opus
+#	cd opus
+#	./configure
+#	make
+#	echo "Download finish opus-${OPUS_VERSION}.tar.gz"
+#fi

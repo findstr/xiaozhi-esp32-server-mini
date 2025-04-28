@@ -1,20 +1,13 @@
 #include <cassert>
 #include <string>
-#include <opus.h>
+#include <opus/opus.h>
 #include <lua.hpp>
+#include <mpg123.h>
 #include "silero-vad-onnx.hpp"
 
-#define VAD_TNAME "audio.vad"
+#include "const.h"
 
-#define OPUS_SAMPLE_RATE 	16000
-#define OPUS_FRAME_MS 		60	// 60ms
-#define OPUS_FRAME_SAMPLES	(OPUS_SAMPLE_RATE * OPUS_FRAME_MS / 1000)
-#define VAD_WINDOW_MS		32
-#define VAD_WINDOW_SAMPLES	(VAD_WINDOW_MS * OPUS_SAMPLE_RATE / 1000)
-#define VAD_PRE_FRAMES		5
-#define VAD_POST_FRAMES		1
-#define VAD_PRE_SAMPLES		(VAD_PRE_FRAMES * OPUS_SAMPLE_RATE * OPUS_FRAME_MS / 1000)
-#define MAX_OPUS_PACKET_SIZE 	(1275 * 3 + 7)
+#define VAD_TNAME "audio.vad"
 
 struct voice_conf {
 	const char *model_path;
@@ -34,9 +27,19 @@ public:
 			config.windows_frame_ms, config.threshold, config.min_silence_duration_ms,
 			config.speech_pad_ms, config.min_speech_duration_ms, config.max_speech_duration_s)
 	{
+		int err;
 		this->max_silence_ms = config.min_silence_duration_ms;
 		this->decoder = decoder;
 		this->encoder = encoder;
+		// 创建新的解码器句柄
+		this->mpg_handle = mpg123_new(NULL, &err);
+		if (this->mpg_handle == NULL) {
+			fprintf(stderr, "无法创建mpg123句柄: %s\n", mpg123_plain_strerror(err));
+			return;
+		}
+		// 设置输出格式: 强制转换为16kHz, 单声道, 16位
+		mpg123_format_none(this->mpg_handle);
+		mpg123_format(this->mpg_handle, OPUS_SAMPLE_RATE, 1, MPG123_ENC_SIGNED_16);
 		this->reset();
 	}
 	~lvoice() {
@@ -48,6 +51,11 @@ public:
 			opus_encoder_destroy(this->encoder);
 			this->encoder = nullptr;
 		}
+		if (this->mpg_handle) {
+			mpg123_close(this->mpg_handle);
+			mpg123_delete(this->mpg_handle);
+			this->mpg_handle = nullptr;
+		}
 	}
 	void reset() {
 		has_voice = false;
@@ -56,12 +64,17 @@ public:
 		vad_input_pcm.clear();
 		vad_speech_pcm.clear();
 		vad_context.clear();
+		opus_context.clear();
+		mpg_output.clear();
+		mpg123_close(this->mpg_handle);
+		mpg123_open_feed(this->mpg_handle);
 	}
 public:
 	//vad detecter
 	bool has_voice;
 	int silence_ms;
 	int max_silence_ms;
+	//vad iterator
 	VadIterator iterator;
 	std::vector<float> vad_input_pcm;
 	std::vector<float> vad_speech_pcm;
@@ -70,6 +83,9 @@ public:
 	//opus encoder
 	std::vector<uint8_t> opus_context;
 	OpusEncoder *encoder;
+	//mp3 decoder
+	mpg123_handle *mpg_handle;
+	std::vector<uint8_t> mpg_output;
 };
 
 
@@ -106,7 +122,7 @@ static int lopus_decode(lua_State *L, const unsigned char *data,
 	OpusDecoder *decoder;
 	int error;
 	int sampling_rate = OPUS_SAMPLE_RATE;  // Opus 支持的典型采样率
-	int channels = 1;                      // 单声道
+	int channels = 1;					  // 单声道
 	// 创建解码器
 	decoder = opus_decoder_create(sampling_rate, channels, &error);
 	if (error != OPUS_OK) {
@@ -151,7 +167,7 @@ static int lvoice_new(lua_State *L)
 {
 	int error;
 	int sampling_rate = OPUS_SAMPLE_RATE;  // Opus 支持的典型采样率
-	int channels = 1;                      // 单声道
+	int channels = 1;					  // 单声道
 	OpusDecoder *decoder;
 	OpusEncoder *encoder;
 	voice_conf config;
@@ -312,8 +328,7 @@ static int lvoice_wrap_opus(lua_State *L)
 	return 1;
 }
 
-
-extern "C" int luaopen_voice(lua_State *L) {
+extern "C" int luaopen_voice_vad(lua_State *L) {
 	const luaL_Reg tbl[] = {
 		{"new", lvoice_new},
 		{"reset", lvoice_reset},

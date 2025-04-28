@@ -18,7 +18,7 @@ local ctx_mt = {__index = wsession}
 function wsession.new(uid, stream, addr, chat)
 	assert(chat)
 	return setmetatable({
-		remote_addr = addr,
+		remoteaddr = addr,
 		stream = stream,
 		buf = {},
 		chat = chat,
@@ -87,7 +87,7 @@ router["/chat"] = function(stream)
 	if not s then
 		local agent = intent(msg)
 		--TODO: user real uid
-		s = wsession.new(1, stream, stream.remote_addr, agent)
+		s = wsession.new(1, stream, stream.remoteaddr, agent)
 		sessions[session_id] = s
 	end
 	s.stream = stream

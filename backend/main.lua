@@ -37,53 +37,53 @@ require "server.web"
 require "server.xiaozhi"
 
 --[[
-local core = require "core"
-local pb = require "pb"
-local protoc = require "protoc"
-local voice = require "voice"
+local voice = require "voice.mpg123"
+local file, err = io.open("output.mp3", "rb")
+if not file then
+	logger.errorf("[main] open file error: %s", err)
+	return
+end
+local mp3 = file:read("*a")
+file:close()
 
-local p = protoc:new()
-local f<close>, err = io.open("proto/vad.proto")
-assert(f, err)
-local data = f:read("a")
-local ok = p:load(data, "vad.proto")
-assert(ok)
-
-voice_ctx = voice.new {
-	model_path = "models/silero_vad.onnx",
-}
-
-core.start(function()
-	local f<close> = io.open("audio.bin", "rb")
-	local dat = f:read("a")
-	local frames = pb.decode("edge_mind.Audio", dat)
-	for i, frame in ipairs(frames.frames) do
-		local res = voice.detect_opus(voice_ctx, frame)
-		if res then
-			local f<close> = io.open("foo.pcm", "wb")
-			f:write(res)
-			f:close()
-			break
-		end
-		print("write", i, #frame, res and #res or 0)
+local vad = voice.new()
+local buffer = {}
+for i = 1, #mp3, 64 do
+	local e = i + 63
+	if e > #mp3 then
+		e = #mp3
 	end
-end)
-
-voice.reset(voice_ctx)
-
-core.start(function()
-	local f<close> = io.open("all.pcm", "rb")
-	local dat = f:read("a")
-	print("input size", #dat)
-	local list = voice.wrap_opus(voice_ctx, dat, true)
-	for i, v in ipairs(list) do
-		local res = voice.detect_opus(voice_ctx, v)
-		if res then
-			local f<close> = io.open("bar.pcm", "wb")
-			f:write(res)
-			f:close()
-			break
-		end
+	local ctx = mp3:sub(i, e)
+	local pcm = voice.mp3topcm(vad, ctx)
+	if pcm then
+		table.insert(buffer, pcm)
 	end
-end)
+end
+
+voice.reset(vad)
+buffer = {}
+for i = 1, #mp3, 64 do
+	local e = i + 63
+	if e > #mp3 then
+		e = #mp3
+	end
+	local ctx = mp3:sub(i, e)
+	local pcm = voice.mp3topcm(vad, ctx)
+	if pcm then
+		table.insert(buffer, pcm)
+	end
+end
+
+
+local file, err = io.open("output.pcm", "wb")
+if not file then
+	logger.errorf("[main] open file error: %s", err)
+	return
+end
+local pcm = table.concat(buffer, "")
+print(#pcm)
+file:write(pcm)
+file:close()
+
+
 ]]
