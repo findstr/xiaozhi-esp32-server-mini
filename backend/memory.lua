@@ -24,7 +24,7 @@ local model_conf = conf.llm.think
 local M = {}
 local mt = {__index = M}
 
-local dbk_profile<const> = "profile:%s"
+local dbk_profile<const> = "profile"
 local dbk_mem<const>  = "mem:%s"
 local memory_index_name<const> = "memory_idx"
 local dbk_mem_id = time.now() * 1000
@@ -130,7 +130,7 @@ local function summarize(uid, working, summary)
 - 每个字段最多提取 **3 条关键信息**，内容应**简洁明确**；
 - 输出不超过 200 字。
 
-<输出格式>
+## 输出格式：
 主题: [1~2句高度概括本轮对话的主题]
 需求:
 - [用户的目标、问题、请求等]
@@ -151,7 +151,6 @@ local function summarize(uid, working, summary)
 其他:
 - [其他无法归类但值得记录的关键信息]
 - [...]
-</输出格式>
 ]]
 	}
 	all_context[#all_context+1] = {
@@ -325,6 +324,7 @@ function M:retrieve(tbl, msg)
 end
 
 function M:add(q, a)
+	logger.debugf("[memory] add uid:%s q: %s a: %s", self.uid, q, a)
 	local working = self.working
 	working[#working + 1] = {
 		role = "user",

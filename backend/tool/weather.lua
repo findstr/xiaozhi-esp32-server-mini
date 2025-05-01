@@ -16,7 +16,7 @@ local req_header = {
 ---@param args table
 ---@return table
 local function weather(session, args)
-	local ip = session.remote_addr:match("([^:]+)")
+	local ip = session.remoteaddr:match("([^:]+)")
 	local loc, err = location(ip)
 	if not loc then
 		logger.errorf("[weather] get location failed: %s", err)

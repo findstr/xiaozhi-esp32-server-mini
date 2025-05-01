@@ -10,9 +10,13 @@ local min_char<const> = 5
 local max_char<const> = 10
 
 ---@class tts
+---@field buf string
+---@field min_char number
+---@field last_tts_time number
 local M = {}
 local mt = {__index = M}
 
+---@return tts
 function M.new()
 	return setmetatable({
 		buf = "",
@@ -21,15 +25,14 @@ function M.new()
 	}, mt)
 end
 
-function M:txt_to_pcm(txt, is_last)
+---@param txt string
+---@param pcm_cb fun(pcm: string)
+---@return boolean
+function M:txt_to_pcm(txt, pcm_cb)
 	self:rate_limit()
-	local data, err = tts(txt)
+	local ok = tts(txt, pcm_cb)
 	self.last_tts_time = time.now()
-	if not data then
-		logger.errorf("[tts] close failed to tts: %s", err)
-		return nil, err
-	end
-	return data, err
+	return ok
 end
 
 function M:rate_limit()
@@ -39,33 +42,36 @@ function M:rate_limit()
 	end
 end
 
-function M:flush()
+---@param txt_cb fun(txt: string)
+---@param pcm_cb fun(pcm: string)
+---@return boolean
+function M:flush(txt_cb, pcm_cb)
 	self.min_char = min_char
 	local buf = self.buf
-	local pcm_data = self:txt_to_pcm(buf, true)
-	self.buf = ""
-	return pcm_data
-end
-
-function M:close()
-	local stream = self.stream
-	if stream then
-		stream:close()
-		stream = nil
+	local x = string.gsub(buf, "%s+", "")
+	if #x == 0 then
+		return true
 	end
-	logger.debug("[tts] close stream")
+	txt_cb(buf)
+	local ok = self:txt_to_pcm(buf, pcm_cb)
+	self.buf = ""
+	return ok
 end
 
 local sep = {}
-for _, c in utf8.codes("。！？，,!?.") do
+for _, c in utf8.codes("。！？，,!?.\n") do
 	sep[c] = true
 end
 
-function M:speak(txt)
+---@param txt string
+---@param txt_cb fun(txt: string)
+---@param pcm_cb fun(pcm: string)
+---@return boolean
+function M:speak(txt, txt_cb, pcm_cb)
 	local buf = self.buf .. txt
 	self.buf = buf
 	if len(buf) < self.min_char then
-		return nil, nil
+		return true
 	end
 	local x
 	local hit = false
@@ -82,19 +88,16 @@ function M:speak(txt)
 		x = #buf + 1
 	end
 	if not x then
-		return nil, "no end of sentence"
+		return true
 	end
 	local try_to_use = buf:sub(1, x-1)
 	if len(try_to_use) < self.min_char then
-		return nil, nil
+		return true
 	end
 	self.min_char = max_char
 	self.buf = buf:sub(x)
-	local pcm, err = self:txt_to_pcm(try_to_use, false)
-	if not pcm then
-		return nil, err
-	end
-	return pcm, try_to_use
+	txt_cb(try_to_use)
+	return self:txt_to_pcm(try_to_use, pcm_cb)
 end
 
 return M

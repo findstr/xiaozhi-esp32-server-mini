@@ -37,53 +37,20 @@ require "server.web"
 require "server.xiaozhi"
 
 --[[
-local core = require "core"
-local pb = require "pb"
-local protoc = require "protoc"
-local voice = require "voice"
+local tts = require "tts.edge"
+local buf = {}
 
-local p = protoc:new()
-local f<close>, err = io.open("proto/vad.proto")
-assert(f, err)
-local data = f:read("a")
-local ok = p:load(data, "vad.proto")
-assert(ok)
-
-voice_ctx = voice.new {
-	model_path = "models/silero_vad.onnx",
-}
-
-core.start(function()
-	local f<close> = io.open("audio.bin", "rb")
-	local dat = f:read("a")
-	local frames = pb.decode("edge_mind.Audio", dat)
-	for i, frame in ipairs(frames.frames) do
-		local res = voice.detect_opus(voice_ctx, frame)
-		if res then
-			local f<close> = io.open("foo.pcm", "wb")
-			f:write(res)
-			f:close()
-			break
-		end
-		print("write", i, #frame, res and #res or 0)
-	end
+tts("床前明月光，疑是地上霜。举头望明月，低头思故乡。", function(pcm)
+	buf[#buf + 1] = pcm
 end)
 
-voice.reset(voice_ctx)
-
-core.start(function()
-	local f<close> = io.open("all.pcm", "rb")
-	local dat = f:read("a")
-	print("input size", #dat)
-	local list = voice.wrap_opus(voice_ctx, dat, true)
-	for i, v in ipairs(list) do
-		local res = voice.detect_opus(voice_ctx, v)
-		if res then
-			local f<close> = io.open("bar.pcm", "wb")
-			f:write(res)
-			f:close()
-			break
-		end
-	end
-end)
+local file, err = io.open("output.pcm", "wb")
+if not file then
+	logger.errorf("[main] open file error: %s", err)
+	return
+end
+local pcm = table.concat(buf, "")
+print("PCM:", #pcm)
+file:write(pcm)
+file:close()
 ]]
