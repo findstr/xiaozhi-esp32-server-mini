@@ -17,6 +17,9 @@ RUN make MYCFLAGS=-I/opt/include/lua
 # 第二阶段：运行环境
 FROM ghcr.io/findstr/silly:slim
 
+# 安装依赖
+RUN apt-get update && apt-get install -y libopus-dev libmpg123-dev && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 # 拷贝运行文件（Lua 脚本和编译库）
 COPY --from=builder /app .
