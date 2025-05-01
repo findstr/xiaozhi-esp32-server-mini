@@ -21,9 +21,17 @@
 
 - Docker部署，镜像大概80M
 
+```
+docker run -it --rm \
+  -p 0.0.0.0:8880:8880 \
+  -p 0.0.0.0:8881:8881 \
+  -v "$(pwd)/backend/myconf.lua:/app/backend/myconf.lua" \
+  ghcr.io/findstr/xiaozhi-esp32-server-mini:latest
+```
+
 ## 前端(两个，分别是网页端和语音端)
 
-- 一个Web前端用于调试`AI Agent`相关的功能(不需要启动[EdgeMind](./edgemind/app.py)服务)
+- 一个Web前端用于调试`AI Agent`相关的功能和OTA接口
 - [Xiaozhi](https://github.com/78/xiaozhi-esp32?tab=readme-ov-file)语音终端
 
 
@@ -31,7 +39,7 @@
 
 - `SileroVad` 用来提前去除一些非人类声音, 降低`ASR`的开销
 - `ASR` 使用了腾讯提供的服务，每个月`5000`次的免费额度足够了
-- `TTS` 使用了`AzureTTS`服务，每月`10W`字符，应该也够用了, `AzureTTS`不支持流式，目前是通过标点切分来实现流式TTS的。
+- `TTS` 使用了`EdgeTTS`服务，支持流式，目前是通过标点切分来实现流式输入，`EdgeTTS`自带流式输出。
 - `Embedding` 使用了`硅基流动`提供的免费API, 虽然有并发限制，在只有一个设备的情况下，并发也够了
 - `大模型` 分别使用了`智谱AI`和`硅基流动`提供的免费API, 同时使用可解决并发问题
 - `向量数据库` 使用了[Redis-Stack](https://redis.io/about/about-stack)提供的免费数据库，免费的32M内存目前应该也足够做记忆召回了
