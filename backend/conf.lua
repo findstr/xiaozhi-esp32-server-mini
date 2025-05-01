@@ -1,13 +1,10 @@
 local M = {
-	http_listen = "127.0.0.1:8081",			-- WEB前端访问的地址
-	xiaozhi_listen = "0.0.0.0:8080",		-- 小智访问的地址
-	exit_after_silence_seconds = 30, 		-- 60秒后自动退出
+	http_listen = "0.0.0.0:8881",				-- WEB前端访问的地址
+	xiaozhi_listen = "0.0.0.0:8880",			-- 小智监听的地址
+	xiaozhi_websocket = os.getenv("XIAOZHI_WEBSOCKET"),	-- 小智访问的地址
+	exit_after_silence_seconds = 30, 			-- 60秒后自动退出
 	vad = {
 		model_path = "../models/silero_vad.onnx",
-		grpc_addr = "127.0.0.1:50051",		-- VAD模型的访问地址
-	},
-	opus = {
-		grpc_addr = "127.0.0.1:50051",		-- OPUS一个简单的流式FPM->OPUS的转换器
 	},
 	asr = {
 		use = "tencent",
@@ -17,7 +14,7 @@ local M = {
 		}
 	},
 	tts = {
-		use = "azure",
+		use = "edge",
 		azure = {
 			region = "eastasia",					-- 语音合成的区域(这里是东亚, 可以切换到其他区域)
 			api_key = "---------------------",			-- API密钥
@@ -26,13 +23,10 @@ local M = {
 	-- 嵌入模型
 	embedding = {
 		use = "openai", -- 这里填openai, 默认不开启本地嵌入模型，因为本地嵌入模型需要大量的内存
-		native = {
-			grpc_addr = "127.0.0.1:50051",
-		},
 		openai = {
 			api_url = "https://api.siliconflow.cn/v1/embeddings",
 			api_key = "Bearer --------------------------------",	-- API密钥
-			cn_model = "BAAI/bge-large-zh-v1.5",
+			cn_model = "BAAI/bge-m3",
 			en_model = "BAAI/bge-large-en-v1.5",
 		},
 	},

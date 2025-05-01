@@ -1,12 +1,14 @@
 local core = require "core"
+local time = require "core.time"
 local logger = require "core.logger"
 local json = require "core.json"
 local http = require "core.http"
 local helper = require "core.http.helper"
-local agent = require "agent"
 local intent = require "intent".agent
 local memory = require "memory"
 local conf = require "conf"
+
+local xiaozhi_websocket = conf.xiaozhi_websocket
 
 local assert = assert
 local setmetatable = setmetatable
@@ -96,6 +98,31 @@ router["/chat"] = function(stream)
 		logger.errorf("chat uid:%s failed: %s", 1, err)
 	end
 end
+
+router["/ota"] = function(stream)
+	local body = json.encode {
+		websocket = {
+			url = xiaozhi_websocket,
+			token = "test-token",
+		},
+		server_time = {
+			timestamp = time.now() // 1000,
+			timezone = "Asia/Shanghai",
+			timezone_offset = -480,
+		},
+		firmware = {
+			version = "1.0.0",
+			url = "https://example.com/firmware/1.0.0.bin",
+		},
+	}
+	local headers = {
+		["content-type"] = "application/json",
+		["content-length"] = #body,
+	}
+	stream:respond(200, headers)
+	stream:close(body)
+end
+
 
 local server = http.listen {
 	addr = conf.http_listen,

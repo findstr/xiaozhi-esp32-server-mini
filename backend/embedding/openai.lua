@@ -26,6 +26,7 @@ local function embedding(txt)
 		encoding_format = "base64",
 	}))
 	if not res then
+		logger.errorf("[embedding.openai] content:`%s` embedding: %s", txt, err)
 		return nil, err
 	end
 	local result = json.decode(res.body)

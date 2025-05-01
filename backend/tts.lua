@@ -48,6 +48,10 @@ end
 function M:flush(txt_cb, pcm_cb)
 	self.min_char = min_char
 	local buf = self.buf
+	local x = string.gsub(buf, "%s+", "")
+	if #x == 0 then
+		return true
+	end
 	txt_cb(buf)
 	local ok = self:txt_to_pcm(buf, pcm_cb)
 	self.buf = ""

@@ -74,7 +74,7 @@ local function uuid4()
 	return uuid
 end
 
-local opt_voice<const> = "zh-CN-XiaoxiaoNeural"
+local opt_voice <const> = "zh-CN-XiaoxiaoNeural"
 local opt_rate<const> = "+0%"
 local opt_pitch<const> = "+0%"
 local opt_volume<const> = "100%"
@@ -166,7 +166,7 @@ local function tts(text, pcm_cb)
 			local len = string.unpack(">I2", data)
 			local header = string.sub(data, 3, len+2)
 			local body = string.sub(data, len+3)
-			logger.debugf("[tts.edge] binary header: %s", header)
+			--logger.debugf("[tts.edge] binary header: %s", header)
 			if receiving_audio then
 				local pcm_data = mpg123.mp3topcm(ctx, body)
 				if pcm_data then
@@ -175,12 +175,12 @@ local function tts(text, pcm_cb)
 			end
 		else
 			if find(data, "Path:turn.start") then
-				logger.debugf("[tts.edge] turn.start: %s", data)
+				logger.debugf("[tts.edge] turn.start")
 			elseif find(data, "Path:audio.metadata") then
-				logger.debugf("[tts.edge] audio.metadata: %s", data)
+				logger.debugf("[tts.edge] audio.metadata")
 				receiving_audio = true
 			elseif find(data, "Path:turn.end") then
-				logger.debugf("[tts.edge] turn.end: %s", data)
+				logger.debugf("[tts.edge] turn.end")
 				break
 			end
 		end
