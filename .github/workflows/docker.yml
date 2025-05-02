@@ -41,4 +41,4 @@ jobs:
           platforms: linux/amd64
           tags: |
             ghcr.io/${{ github.repository }}:latest
-            registry.cn-hangzhou.aliyuncs.com/findstr/${{ github.repository }}:latest
+            registry.cn-hangzhou.aliyuncs.com/${{ github.repository }}:latest
