@@ -36,13 +36,8 @@
 
 - Docker部署，镜像大概80M
 
-```
-docker run -it --rm \
-  -p 0.0.0.0:8880:8880 \
-  -p 0.0.0.0:8881:8881 \
-  -v "$(pwd)/backend/myconf.lua:/app/backend/myconf.lua" \
-  ghcr.io/findstr/xiaozhi-esp32-server-mini:latest
-```
+- [详细方式](docs/Deploy.md)
+
 
 ## 前端(两个，分别是网页端和语音端)
 
@@ -69,4 +64,3 @@ docker run -it --rm \
 - 基础知识库召回(主要是一些儿童读物，课本，防止大模型的幻觉让小朋友学到错误的知识)
 - HomeAssistant对接
 - 接入喜马拉雅讲故事
-
