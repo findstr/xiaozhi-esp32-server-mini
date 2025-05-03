@@ -396,6 +396,7 @@ local function vad_detect(session, dat)
 			session.chat = intent.agent(txt)
 		end
 		session.chat(session, txt)
+		session:sync()
 		if intent.over(txt) then
 			session.state = STATE_CLOSE
 			logger.info("xiaozhi state", "close")
