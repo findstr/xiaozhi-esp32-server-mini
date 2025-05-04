@@ -12,6 +12,9 @@
 
 没有联网能力
 
+[![视频封面](docs/images/BV1c3Gqz9ErQ.jpg)](https://www.bilibili.com/video/BV1c3Gqz9ErQ/)
+[![视频封面](docs/images/BV1zfV3zUEFp.png)](https://www.bilibili.com/video/BV1zfV3zUEFp/)
+
 ## 运行时内存
 
 - 对话时大概76M
