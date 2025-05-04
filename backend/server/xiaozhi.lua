@@ -216,6 +216,11 @@ function xsession:write(data)
 	if self.state ~= STATE_SPEAKING then
 		return false
 	end
+	-- remove '*' from data
+	data = data:gsub("%*", "")
+	if #data == 0 then
+		return true
+	end
 	local ok = self.tts:speak(data, self.txt_cb, self.pcm_cb)
 	if not ok then
 		return true
@@ -226,7 +231,7 @@ end
 function xsession:over_tips()
 	local pcm = pcm_cache["over"]
 	if pcm then
-		self.txt_cb("over")
+		self.txt_cb("结束")
 		self.pcm_cb(pcm)
 	end
 end
