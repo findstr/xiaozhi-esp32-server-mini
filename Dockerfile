@@ -1,7 +1,7 @@
 FROM ghcr.io/findstr/silly:slim AS builder
 
 # 安装构建依赖
-RUN apt-get update && apt-get install -y build-essential wget libopus-dev libmpg123-dev && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y wget build-essential libopus-dev libmpg123-dev && rm -rf /var/lib/apt/lists/*
 
 # 复制代码
 WORKDIR /app
