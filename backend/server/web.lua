@@ -100,21 +100,30 @@ router["/chat"] = function(stream)
 end
 
 router["/ota"] = function(stream)
-	local body = json.encode {
-		websocket = {
-			url = xiaozhi_websocket,
-			token = "test-token",
-		},
-		server_time = {
-			timestamp = time.now() // 1000,
-			timezone = "Asia/Shanghai",
-			timezone_offset = -480,
-		},
-		firmware = {
-			version = "1.0.0",
-			url = "https://example.com/firmware/1.0.0.bin",
-		},
+	logger.debug("ota request")
+	local url = "https://api.tenclass.net/xiaozhi/ota/"
+	local header = stream.header
+	local body = stream:readall()
+	local resp, err = http.POST(url, header, body)
+	if not resp then
+		stream:respond(500, {["content-type"] = "text/plain"})
+		stream:close(err)
+		return
+	end
+	local remote_body = resp.body
+	local status = resp.status
+	if status ~= 200 then
+		stream:respond(status, {["content-type"] = "text/plain"})
+		stream:close(remote_body)
+		return
+	end
+	local obj = json.decode(resp.body)
+	obj.mqtt = nil
+	obj.websocket = {
+		url = xiaozhi_websocket,
+		token = "test-token",
 	}
+	local body = json.encode(obj)
 	local headers = {
 		["content-type"] = "application/json",
 		["content-length"] = #body,
