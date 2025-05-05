@@ -18,7 +18,7 @@ all: ../luaclib/voice.so
 	mkdir -p ../luaclib
 
 deps:
-	cd ./deps && sh ./init.sh
+	cd ./deps && chmod u+x ./init.sh && ./init.sh
 
 clean:
 	rm -f luaclib/voice.so
