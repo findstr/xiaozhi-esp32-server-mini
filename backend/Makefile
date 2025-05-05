@@ -1,6 +1,6 @@
 .PHONY: all deps
 
-ONNXRUNTIME = ./deps/onnxruntime-linux-x64
+ONNXRUNTIME = ./deps/onnxruntime-linux
 INCLUDE = -I$(ONNXRUNTIME)/include $(MYCFLAGS)
 LIB_PATH = -L$(ONNXRUNTIME)/lib
 
@@ -18,7 +18,7 @@ all: ../luaclib/voice.so
 	mkdir -p ../luaclib
 
 deps:
-	cd ./deps && sh ./init.sh
+	cd ./deps && chmod u+x ./init.sh && ./init.sh
 
 clean:
 	rm -f luaclib/voice.so

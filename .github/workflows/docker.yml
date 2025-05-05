@@ -2,7 +2,7 @@ name: Build Docker Image (Debian)
 
 on:
   push:
-    branches: [ master, docker ]
+    branches: [ master,docker ]
 
 jobs:
   build:
@@ -33,12 +33,12 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build and push slim (debian)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
           push: true
-          platforms: linux/amd64
+          platforms: linux/amd64, linux/arm64
           tags: |
             ghcr.io/${{ github.repository }}:latest
             registry.cn-hangzhou.aliyuncs.com/${{ github.repository }}:latest
