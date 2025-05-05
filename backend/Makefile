@@ -1,6 +1,6 @@
 .PHONY: all deps
 
-ONNXRUNTIME = ./deps/onnxruntime-linux-x64
+ONNXRUNTIME = ./deps/onnxruntime-linux
 INCLUDE = -I$(ONNXRUNTIME)/include $(MYCFLAGS)
 LIB_PATH = -L$(ONNXRUNTIME)/lib
 
