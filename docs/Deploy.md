@@ -84,6 +84,8 @@ local M = {
 		},
 	},
 }
+
+return M
 ```
 
 ## 4. 启动docker
