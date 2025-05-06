@@ -6,7 +6,7 @@ if [ "$PWD" != "$SCRIPT_DIR" ]; then
 fi
 
 # ONNX Runtime 版本
-ONNXRUNTIME_VERSION=1.21.0
+ONNXRUNTIME_VERSION=1.20.1
 
 # 检测系统架构
 ARCH=$(uname -m)
