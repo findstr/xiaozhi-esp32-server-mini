@@ -1,3 +1,4 @@
+local core = require "core"
 local websocket = require "core.websocket"
 local logger = require "core.logger"
 local hash = require "core.crypto.hash"
@@ -23,20 +24,12 @@ local BASE_URL <const> = "wss://speech.platform.bing.com/consumer/speech/synthes
 local TRUSTED_CLIENT_TOKEN<const> = "6A5AA1D4EAFF4E9FB37E23D68491D6F4"
 local WSS_URL<const> = BASE_URL .. "?TrustedClientToken=" .. TRUSTED_CLIENT_TOKEN
 
-local mpg_ctx_buffer = {}
-
 local function mpg_ctx_new()
-	local ctx = remove(mpg_ctx_buffer)
-	if not ctx then
-		ctx = mpg123.new()
-	else
-		mpg123.reset(ctx)
-	end
+	local ctx = mpg123.new()
 	return ctx
 end
 
 local function mpg_ctx_free(ctx)
-	mpg_ctx_buffer[#mpg_ctx_buffer + 1] = ctx
 end
 
 local function hex2str(hex)
@@ -126,6 +119,8 @@ local function create_ssml_message(connection_id, text)
 	return message
 end
 
+local cache = setmetatable({}, {__mode = "v"})
+
 ---@param text string
 ---@param pcm_cb fun(pcm: string)
 ---@return boolean
@@ -134,7 +129,13 @@ local function tts(text, pcm_cb)
 		logger.errorf("[tts.edge] text is empty")
 		return false
 	end
-
+	local pcm = cache[text]
+	if pcm then
+		logger.debugf("[tts.edge] cache hit text:`%s`", text)
+		pcm_cb(pcm.data)
+		return true
+	end
+	logger.debugf("[tts.edge] tts start:`%s`", text)
 	local connection_id = uuid4()
 	local receiving_audio = false
 	local headers = {
@@ -147,9 +148,17 @@ local function tts(text, pcm_cb)
 		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0",
 	}
 	local url = WSS_URL .. "&Sec-MS-GEC=" .. sec_gec(os.time(), TRUSTED_CLIENT_TOKEN) .. "&Sec-MS-GEC-Version=" .. SEC_MS_GEC_VERSION .. "&ConnectionId=" .. connection_id
-	local sock, err = websocket.connect(url, headers)
+	local sock, err
+	for i = 1, 5 do
+		sock, err = websocket.connect(url, headers)
+		if sock then
+			break
+		end
+		logger.errorf("[tts.edge] connect failed: %s retry:%s", err, i)
+		core.sleep(100)
+	end
 	if not sock then
-		logger.errorf("[tts.edge] connect failed: %s", err)
+		logger.errorf("[tts.edge] connect failed", err)
 		return false
 	end
 	-- 发送配置消息
@@ -160,17 +169,21 @@ local function tts(text, pcm_cb)
 	local ssml_message = create_ssml_message(connection_id, text)
 	sock:write(ssml_message, "text")
 	local ctx = mpg_ctx_new()
+	local pcms = {}
 	while true do
 		local data, typ = sock:read()
 		if typ == "binary" then
 			local len = string.unpack(">I2", data)
 			local header = string.sub(data, 3, len+2)
 			local body = string.sub(data, len+3)
-			--logger.debugf("[tts.edge] binary header: %s", header)
-			if receiving_audio then
+			--logger.debugf("[tts.edge] binary header: %s body:%s", header, #body)
+			if receiving_audio and #body > 0 then
 				local pcm_data = mpg123.mp3topcm(ctx, body)
-				if pcm_data then
+				if pcm_data and #pcm_data > 0 then
+					pcms[#pcms + 1] = pcm_data
 					pcm_cb(pcm_data)
+				else
+					logger.errorf("[tts.edge] mp3topcm error")
 				end
 			end
 		else
@@ -184,6 +197,12 @@ local function tts(text, pcm_cb)
 				break
 			end
 		end
+	end
+	local pcmdat = concat(pcms)
+	if #pcmdat > 0 then
+		cache[text] = {
+			data = pcmdat,
+		}
 	end
 	mpg_ctx_free(ctx)
 	sock:close()

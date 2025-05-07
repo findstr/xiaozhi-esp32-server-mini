@@ -1,9 +1,8 @@
 local core = require "core"
 local logger = require "core.logger"
-local time = require "core.time"
 local json = require "core.json"
 local http = require "core.http"
-local conf = require "conf"
+local mutex = require "core.sync.mutex".new()
 
 local tremove = table.remove
 local concat = table.concat
@@ -12,7 +11,6 @@ local concat = table.concat
 ---@field stream core.http.h1stream
 ---@field events string[]
 ---@field halfline string
----@field header boolean
 local M = {}
 
 local mt = {__index = M, __close = function(self)
@@ -22,26 +20,15 @@ end }
 local alpn_protos = {"http/1.1", "h2"}
 ---@alias llm_name "chat" | "think" | "intent"
 
----@param req {
----	llm: llm_name,
----	stream: boolean,
----	messages: table[],
----	tools: table[]?,
----	temperature: number?,
----	model: string?,
----}
----@return openai?, string? error
-function M.open(model_conf, req)
-	req.model = model_conf.model
-	local txt = json.encode(req)
-	--logger.debugf("[openai] request: %s", txt)
+---@return core.http.h1stream|core.http.h2stream|nil, string|number|nil
+local function open_stream(model_conf, req, txt)
 	local stream, err = http.request("POST", model_conf.api_url, {
 		["authorization"] = model_conf.api_key,
 		["content-type"] = "application/json",
 		["content-length"] = #txt,
 	}, false, alpn_protos)
 	if not stream then
-		logger.error("openai open failed: %s", err)
+		logger.errorf("[openai] open failed: %s", err)
 		return nil, err
 	end
 	if stream.version == "HTTP/2" then
@@ -49,10 +36,48 @@ function M.open(model_conf, req)
 	else
 		stream:write(txt)
 	end
+	local status, header = stream:readheader()
+	if not status then
+		logger.errorf("[openai] read header failed: %s", header)
+		return nil, header
+	end
+	return stream, status
+end
+
+---@param req {
+---	llm: llm_name,
+---	messages: table[],
+---	tools: table[]?,
+---	temperature: number?,
+---	model: string?,
+---}
+---@return openai?, string? error
+function M.open(model_conf, req)
+	local lock = mutex:lock(model_conf.api_url)
+	req.model = model_conf.model
+	local txt = json.encode(req)
+	local stream, status
+	--logger.debugf("[openai] request: %s", txt)
+	for i = 1, 2 do
+		stream, status = open_stream(model_conf, req, txt)
+		if stream then
+			break
+		end
+		logger.errorf("[openai] open failed: %s", status)
+		core.sleep(100)
+	end
+	if not stream then
+		lock:unlock()
+		return nil, "open failed"
+	end
+	if status ~= 200 then
+		lock:unlock()
+		return nil, "status: " .. status
+	end
 	return setmetatable({
+		lock = lock,
 		stream = stream,
 		halfline = "",
-		header = false,
 		events = {},
 	}, mt), nil
 end
@@ -61,6 +86,7 @@ local function read_event(self)
 	local events = self.events
 	local line, err = self.stream:read()
 	if not line then
+		logger.errorf("[openai] read_event failed: %s", err)
 		return nil, err
 	end
 	line = self.halfline .. line
@@ -80,14 +106,6 @@ local function read_event(self)
 end
 
 function M:read()
-	local status, header = self.stream:readheader()
-	if not status then
-		print("read header failed:", header)
-		return nil, header
-	end
-	if status ~= 200 then
-		return nil, "status: " .. self.stream:read()
-	end
 	local buf = {}
 	while true do
 		local line, err = self.stream:read()
@@ -103,16 +121,6 @@ function M:read()
 end
 
 function M:readsse()
-	if not self.header then
-		local status, header = self.stream:readheader()
-		if not status then
-			return nil, header
-		end
-		if status ~= 200 then
-			return nil, "status: " .. self.stream:read()
-		end
-		self.header = true
-	end
 	if not self.events then
 		return nil, "EOF"
 	end
@@ -132,6 +140,10 @@ function M:readsse()
 end
 
 function M:close()
+	if self.lock then
+		self.lock:unlock()
+		self.lock = nil
+	end
 	self.stream:close()
 end
 

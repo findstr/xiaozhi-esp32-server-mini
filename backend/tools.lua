@@ -5,6 +5,8 @@ local setmetatable = setmetatable
 local ipairs = ipairs
 
 ---@class tools_mt
+---@field desc_list table<string, string>
+---@field fns table<string, function>
 local M = {}
 local mt = {__index = M}
 
@@ -32,7 +34,7 @@ function M:register(tools)
 end
 
 ---@param self tools
----@param session xiaozhi.session
+---@param session session
 function M:call(session, call)
 	logger.debugf("call: %s", json.encode(call))
 	local id = call.id

@@ -12,7 +12,7 @@ local req_header = {
 	["x-qw-api-key"] = "6ba85f808120473a964dacfe7a1c9a9b",
 }
 
----@param session xiaozhi.session
+---@param session session
 ---@param args table
 ---@return table
 local function weather(session, args)

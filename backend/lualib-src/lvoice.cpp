@@ -271,7 +271,10 @@ static int lvoice_wrap_opus(lua_State *L)
 	lvoice *vad = (lvoice *)luaL_checkudata(L, 1, VAD_TNAME);
 	const char *data = luaL_checklstring(L, 2, &len);
 	// 检查输入数据有效性
-	if (len == 0 || len % 2 != 0) {
+	if (len == 0) {
+		return luaL_error(L, "invalid data length (zero)");
+	}
+	if (len % 2 != 0) {
 		return luaL_error(L, "invalid data length (must be even)");
 	}
 	is_last = lua_toboolean(L, 3);

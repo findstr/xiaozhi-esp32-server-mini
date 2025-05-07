@@ -272,7 +272,7 @@ function M.start()
 	create_index()
 end
 
----@param uid number
+---@param uid string
 ---@return memory
 function M.new(uid)
 	return setmetatable({
@@ -337,13 +337,11 @@ function M:add(q, a)
 end
 
 function M:close()
-	core.fork(function()
-		save_chats(self)
-	end)
-	core.fork(function()
-		update_profile(self)
-	end)
-
+	if #self.working == 0 then
+		return
+	end
+	save_chats(self)
+	update_profile(self)
 end
 
 return M

@@ -29,42 +29,44 @@ end
 ---@param args {
 ---	model: string,
 ---	tools: tools,
----	session: xiaozhi.session,
+---	session: session,
 ---	buf: string[],
 ---	openai: table,
 ---}
 local function llm_call(args)
+	local session = args.session
 	local model_conf = conf.llm[args.model]
 	if not model_conf then
 		return false, "model not found: " .. args.model
 	end
 	local tools = args.tools
-	local session = args.session
 	local buf = args.buf
 	local openai_args = args.openai
 	if tools then
 		openai_args.tools = tools:desc()
 	end
 	openai_args.stream = true
-	local ai, err = openai.open(model_conf, openai_args)
+	local ai<close>, err = openai.open(model_conf, openai_args)
 	if not ai then
 		return false, err
 	end
+	local ch_out = session.ch_llm_output
 	local messages = openai_args.messages
 	while true do
-		local obj, err = ai:readsse()
+		local obj
+		obj, err = ai:readsse()
 		if not obj then
-			return err == "EOF", err
+			break
 		end
 		local delta = obj.choices[1].delta
 		local tool_calls = delta.tool_calls
 		if tool_calls then
+			local call_args
 			local tool_call = tool_calls[1]
-			local call_args, err = read_args(ai)
+			call_args, err = read_args(ai)
 			if not call_args then
-				return false, err
+				break
 			end
-			-- 去掉所有空格
 			logger.debugf("[chat] raw arguments: %s", call_args)
 			tool_call['function']['arguments'] = call_args
 			messages[#messages + 1] = {
@@ -78,13 +80,18 @@ local function llm_call(args)
 			ai:close()
 			return llm_call(args)
 		elseif delta.content then
-			buf[#buf + 1] = delta.content
-			local ok, err = session:write(delta.content)
-			if not ok then
-				return false, err
+			local content = delta.content
+			if #content > 0 then
+				buf[#buf + 1] = content
+				local ok = ch_out:push(content)
+				logger.debugf("[llm] write `%s`, success:%s", content, ok)
+				if not ok then -- 如果push失败，说明ch_out已经关闭，直接退出
+					break
+				end
 			end
 		end
 	end
+	return err == "EOF", err
 end
 
 return llm_call

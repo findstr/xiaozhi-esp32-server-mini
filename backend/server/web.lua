@@ -4,64 +4,30 @@ local logger = require "core.logger"
 local json = require "core.json"
 local http = require "core.http"
 local helper = require "core.http.helper"
+local channel = require "core.sync.channel"
+local waitgroup = require "core.sync.waitgroup"
 local intent = require "intent".agent
-local memory = require "memory"
 local conf = require "conf"
 
 local xiaozhi_websocket = conf.xiaozhi_websocket
 
-local assert = assert
 local setmetatable = setmetatable
 
 ---@class web.session:session
 ---@field stream core.http.h1stream
 local wsession = {}
 local ctx_mt = {__index = wsession}
-function wsession.new(uid, stream, addr, chat)
-	assert(chat)
+
+---@param uid number
+---@param addr string
+---@return web.session
+function wsession.new(uid, addr)
 	return setmetatable({
+		uid = uid,
 		remoteaddr = addr,
-		stream = stream,
-		buf = {},
-		chat = chat,
-		memory = memory.new(uid),
+		ch_llm_input = channel.new(),
+		ch_llm_output = channel.new(),
 	}, ctx_mt)
-end
-
-function wsession:start()
-	local stream = self.stream
-	stream:respond(200, {
-		["content-type"] = "text/event-stream",
-		["charset"] = "utf-8",
-	})
-	stream:write("event: speak\n")
-	stream:write("data: reasoner\n\n")
-end
-
-function wsession:write(data)
-	local txt = json.encode({
-		type = "speaking",
-		data = data,
-	})
-	self.stream:write("data: " .. txt .. "\n\n")
-	return true
-end
-
-function wsession:stop()
-	local stream = self.stream
-	stream:write('data: {"type": "stop"}\n\n')
-	stream:close()
-	self.memory:close()
-end
-
-function wsession:error(err)
-	local stream = self.stream
-	stream:respond(500, {
-		["content-type"] = "text/plain",
-		["content-length"] = #err
-	})
-	stream:writechunk(err)
-	stream:close()
 end
 
 local sessions = {}
@@ -85,18 +51,48 @@ router["/chat"] = function(stream)
 		stream:close()
 		return
 	end
+	local wg = waitgroup.new()
 	local s = sessions[session_id]
 	if not s then
 		local agent = intent(msg)
 		--TODO: user real uid
-		s = wsession.new(1, stream, stream.remoteaddr, agent)
+		s = wsession.new(1, stream.remoteaddr)
 		sessions[session_id] = s
+		wg:fork(function()
+			local ok, err = core.pcall(agent, s)
+			if not ok then
+				logger.errorf("server.web agent error: %s", err)
+			end
+			s.ch_llm_output:close()
+		end)
 	end
-	s.stream = stream
-	local ok, err = core.pcall(s.chat, s, msg)
-	if not ok then
-		logger.errorf("chat uid:%s failed: %s", 1, err)
-	end
+	s.ch_llm_input:push(msg)
+	wg:fork(function()
+		stream:respond(200, {
+			["content-type"] = "text/event-stream",
+			["charset"] = "utf-8",
+		})
+		stream:write("event: speak\n")
+		stream:write("data: reasoner\n\n")
+		local ch_llm_output = s.ch_llm_output
+		while true do
+			local data = ch_llm_output:pop()
+			if not data then
+				break
+			end
+			if #data == 0 then
+				stream:write('data: {"type": "stop"}\n\n')
+				break
+			end
+			local txt = json.encode({
+				type = "speaking",
+				data = data,
+			})
+			stream:write("data: " .. txt .. "\n\n")
+		end
+		stream:close()
+	end)
+	wg:wait()
 end
 
 router["/ota"] = function(stream)
@@ -145,11 +141,11 @@ local server = http.listen {
 		end
 		local ok, err = core.pcall(fn, stream)
 		if not ok then
-			print("error", err)
+			logger.errorf("server.web error: %s", err)
 			stream:respond(500, {["content-type"] = "text/plain"})
 			stream:close("Internal Server Error")
 		end
 	end
 }
 
-print("server.web listen on", conf.http_listen)
+logger.infof("server.web listen on %s", conf.http_listen)

@@ -1,7 +1,5 @@
 local logger = require "core.logger"
-local json = require "core.json"
-local openai = require "openai"
-local conf = require "conf"
+local extract = require "extract"
 
 local ipairs = ipairs
 local format = string.format
@@ -9,11 +7,13 @@ local format = string.format
 local agents = {
 	"chat",
 	"riddle",
-	"teacher",
-	"spokenteacher",
+--	"teacher",
+--	"spokenteacher",
 }
 
 local agent_desc = ""
+
+---@type table<string, fun(session:session)>
 local agent_exec = {}
 
 do
@@ -28,7 +28,7 @@ do
 	agent_desc = table.concat(buf, "\n")
 end
 
-local sys_prompt = string.format([[
+local fmt_agent_sys_prompt = string.format([[
 你是一个智能意图识别器。你的任务是根据用户输入判断最适合的角色(agent)来回答问题。
 
 请根据下面角色列表进行分析，并输出：
@@ -48,50 +48,17 @@ local sys_prompt = string.format([[
 }
 ]], agent_desc)
 
-local usr_prompt = [[
-用户输入：
-%s
-
-请根据用户输入判断输出。
-]]
-
-local model_conf = conf.llm.intent
+local agent_sys_prompt = format(fmt_agent_sys_prompt, agent_desc)
 
 local M = {}
 
 ---@param message string
----@return boolean, string? error
+---@return fun(session:session)
 function M.agent(message)
-	local messages = {
-		{ role = "system", content = format(sys_prompt, agent_desc) },
-		{ role = "user",   content = format(usr_prompt, message) },
-	}
-	local ai <close>, err = openai.open(model_conf, {
-		messages = messages,
-		temperature = 0.7,
-	})
-	if not ai then
-		logger.error("[intent] openai open failed: %s", err)
-		return false, err
-	end
-	local result, err = ai:read()
-	if not result then
-		logger.errorf("[intent] openai read failed: %s", err)
-		return false, err
-	end
-	local content = result.choices[1].message.content
-	if not content then
-		logger.error("[intent] openai read empty")
-		return false, "empty"
-	end
-	if content:find("```json") then
-		content = content:gsub("```json", ""):gsub("```", "")
-	end
-	logger.infof("[intent] msg:`%s` intent result: `%s`", message, content)
-	local obj = json.decode(content)
+	local obj, err = extract(agent_sys_prompt, message)
 	if not obj then
-		logger.errorf("[intent] openai decode failed: %s", content)
-		return false, "decode failed"
+		logger.errorf("[intent] agent exec failed: %s", err)
+		return agent_exec.chat
 	end
 	return agent_exec[obj.agent_name] or agent_exec.chat
 end
@@ -220,40 +187,10 @@ function M.over(message)
 	if match_exit(message) then
 		return true, nil
 	end
-	-- 处理意图
-	local messages = {
-		{ role = "system", content = sys_over_prompt },
-		{ role = "user",   content = format(usr_prompt, message) },
-	}
-	local ai <close>, err = openai.open(model_conf, {
-		messages = messages,
-		temperature = 0.1,
-		max_tokens = 100,
-		top_p = 0.9, -- 平衡确定性与灵活性
-		frequency_penalty = 0.5, -- 减少无效重复
-		presence_penalty = 0.3, -- 避免多余内容
-	})
-	if not ai then
-		logger.error("[intent] openai open failed: %s", err)
-		return false, err
-	end
-	local result, err = ai:read()
-	if not result then
-		logger.errorf("[intent] openai read failed: %s", err)
-		return false, err
-	end
-	local content = result.choices[1].message.content
-	if not content then
-		logger.error("[intent] openai read empty")
-		return false, "empty"
-	end
-	if content:find("```json") then
-		content = content:gsub("```json", ""):gsub("```", "")
-	end
-	local obj = json.decode(content)
+	local obj, err = extract(sys_over_prompt, message)
 	if not obj then
-		logger.errorf("[intent] decode content failed: %s", content)
-		return false, "decode failed"
+		logger.errorf("[intent] over exec failed: %s", err)
+		return false, err
 	end
 	logger.infof("[intent] msg:`%s` intent result: `%s` `%s`", message, obj.over, obj.confidence)
 	return obj.over, nil

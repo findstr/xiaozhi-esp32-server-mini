@@ -49,8 +49,6 @@ local function is_private_ip(ip)
 		or (ip_num >= ip192_start and ip_num <= ip192_end)
 end
 
-print(is_private_ip("10.0.0.1"))
-
 ---@class location
 ---@field ip string
 ---@field location {lat: number, lng: number}

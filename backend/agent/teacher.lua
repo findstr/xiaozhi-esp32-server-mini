@@ -1,9 +1,7 @@
 local logger = require "core.logger"
 local llm = require "llm"
-local tools = require "tools"
+local memory = require "memory"
 
-local date = os.date
-local format = string.format
 local concat = table.concat
 
 
@@ -16,32 +14,42 @@ local prompt = [[
 5. 以温暖、友好的语气与孩子互动，声音清晰、节奏平稳。
 ]]
 
----@param session xiaozhi.session
----@param message string
-local function chat(session, message)
-	local messages = {
-		{role = "system", content = format(prompt, date("%Y-%m-%d %H:%M:%S"))},
-	}
-	local buf = {}
-	local memory = session.memory
-	memory:retrieve(messages, message)
-	session:start()
-	local ok, err = llm {
-		session = session,
-		buf = buf,
-		model = "chat",
-		openai = {
-			messages = messages,
-			temperature = 0.7,
-		},
-	}
-	if not ok then
-		session:error(err)
-		logger.errorf("chat uid:%s llm_call failed: %s", session.uid, err)
-		return err
+---@param session session
+local function chat(session)
+	local mem = memory.new(session.uid)
+	local ch_in = session.ch_llm_input
+	local ch_out = session.ch_llm_output
+	while true do
+		local msg = ch_in:pop()
+		if not msg then
+			break
+		end
+		local messages = {
+			{ role = "system", content = prompt },
+		}
+		local buf = {}
+		mem:retrieve(messages, msg)
+		local ok, err = llm {
+			session = session,
+			buf = buf,
+			model = "chat",
+			openai = {
+				messages = messages,
+				temperature = 0.6, -- # 平衡创造性与稳定性
+				max_tokens = 64, -- # 匹配儿童注意力周期
+				top_p = 0.9,
+				repetition_penalty = 1.2,
+				stop = { "【", "】" }, -- # 防止结构符号泄露
+			},
+		}
+		local ok2 = ch_out:push("")
+		if not ok or not ok2 then
+			logger.errorf("chat uid:%s llm_call failed: %s", session.uid, err)
+			break
+		end
+		mem:add(msg, concat(buf))
 	end
-	session.memory:add(message, concat(buf))
-	session:stop()
+	mem:close()
 end
 
 local m = {
