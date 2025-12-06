@@ -1,8 +1,7 @@
-local core = require "core"
-local json = require "core.json"
-local http = require "core.http"
-local logger = require "core.logger"
-local gzip = require "core.compress.gzip"
+local json = require "silly.encoding.json"
+local http = require "silly.net.http"
+local logger = require "silly.logger"
+local gzip = require "silly.compress.gzip"
 local location = require "location"
 
 local format = string.format

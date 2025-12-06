@@ -1,4 +1,4 @@
-local logger = require "core.logger"
+local logger = require "silly.logger"
 local extract = require "extract"
 
 local ipairs = ipairs

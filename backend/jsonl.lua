@@ -1,4 +1,4 @@
-local json = require "core.json"
+local json = require "silly.encoding.json"
 
 local M = {}
 

@@ -1,14 +1,14 @@
-local core = require "core"
-local logger = require "core.logger"
-local json = require "core.json"
-local http = require "core.http"
-local mutex = require "core.sync.mutex".new()
+local time = require "silly.time"
+local logger = require "silly.logger"
+local json = require "silly.encoding.json"
+local http = require "silly.net.http"
+local mutex = require "silly.sync.mutex".new()
 
 local tremove = table.remove
 local concat = table.concat
 
 ---@class openai
----@field stream core.http.h1stream
+---@field stream silly.net.http.h1.stream
 ---@field events string[]
 ---@field halfline string
 local M = {}
@@ -20,23 +20,21 @@ end }
 local alpn_protos = {"http/1.1", "h2"}
 ---@alias llm_name "chat" | "think" | "intent"
 
----@return core.http.h1stream|core.http.h2stream|nil, string|number|nil
-local function open_stream(model_conf, req, txt)
-	local stream, err = http.request("POST", model_conf.api_url, {
+---@return silly.net.http.h1.stream|silly.net.http.h2.stream|nil, string|number|nil
+local function open_stream(model_conf, txt)
+	local stream, err = http.request("post", model_conf.api_url, {
 		["authorization"] = model_conf.api_key,
 		["content-type"] = "application/json",
 		["content-length"] = #txt,
-	}, false, alpn_protos)
+	})
 	if not stream then
 		logger.errorf("[openai] open failed: %s", err)
 		return nil, err
 	end
-	if stream.version == "HTTP/2" then
-		stream:close(txt)
-	else
-		stream:write(txt)
-	end
-	local status, header = stream:readheader()
+	stream:closewrite(txt)
+	local body = stream:readall()
+	local status = stream.status
+	local header = stream.header
 	if not status then
 		logger.errorf("[openai] read header failed: %s", header)
 		return nil, header
@@ -59,12 +57,12 @@ function M.open(model_conf, req)
 	local stream, status
 	--logger.debugf("[openai] request: %s", txt)
 	for i = 1, 2 do
-		stream, status = open_stream(model_conf, req, txt)
+		stream, status = open_stream(model_conf, txt)
 		if stream then
 			break
 		end
 		logger.errorf("[openai] open failed: %s", status)
-		core.sleep(100)
+		time.sleep(100)
 	end
 	if not stream then
 		lock:unlock()

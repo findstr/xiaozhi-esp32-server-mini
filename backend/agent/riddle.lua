@@ -1,5 +1,5 @@
-local logger = require "core.logger"
-local json = require "core.json"
+local logger = require "silly.logger"
+local json = require "silly.encoding.json"
 local llm = require "llm"
 local jsonl = require "jsonl"
 local extract = require "extract"

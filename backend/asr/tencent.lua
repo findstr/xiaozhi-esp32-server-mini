@@ -1,10 +1,10 @@
-local http = require "core.http"
-local json = require "core.json"
-local time = require "core.time"
-local logger = require "core.logger"
-local hash = require "core.crypto.hash"
-local hmac = require "core.crypto.hmac"
-local base64 = require "core.base64"
+local http = require "silly.net.http"
+local json = require "silly.encoding.json"
+local time = require "silly.time"
+local logger = require "silly.logger"
+local hash = require "silly.crypto.hash"
+local hmac = require "silly.crypto.hmac"
+local base64 = require "silly.encoding.base64"
 
 local conf = require "conf"
 
@@ -33,8 +33,8 @@ local function asr(dat)
 	local data = base64.encode(dat)
 
 	 -- ************* 步骤 1：拼接规范请求串 *************
-	local timestamp = time.nowsec()
-	local httpRequestMethod = "POST"
+	local timestamp = time.now() // 1000
+	local httpRequestMethod = "post"
 	local canonicalURI = "/"
 	local canonicalQueryString = ""
 	local canonicalHeaders = string.format("content-type:%s\nhost:%s\nx-tc-action:%s\n",
@@ -96,7 +96,7 @@ local function asr(dat)
 	    ["X-TC-Region"] = region
 	}
 
-	local resp, err = http.POST(url, headers, payload)
+	local resp, err = http.post(url, headers, payload)
 	if not resp then
 		return nil, err
 	end

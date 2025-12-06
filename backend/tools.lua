@@ -1,5 +1,5 @@
-local json = require "core.json"
-local logger = require "core.logger"
+local json = require "silly.encoding.json"
+local logger = require "silly.logger"
 
 local setmetatable = setmetatable
 local ipairs = ipairs

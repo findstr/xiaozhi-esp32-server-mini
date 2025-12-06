@@ -1,10 +1,9 @@
-local core = require "core"
-local time = require "core.time"
-local json = require "core.json"
-local channel = require "core.sync.channel"
-local waitgroup = require "core.sync.waitgroup"
-local logger = require "core.logger"
-local websocket = require "core.websocket"
+local time = require "silly.time"
+local json = require "silly.encoding.json"
+local channel = require "silly.sync.channel"
+local waitgroup = require "silly.sync.waitgroup"
+local logger = require "silly.logger"
+local websocket = require "silly.net.websocket"
 local voice = require "voice.vad"
 local asr = require "asr"
 local tts = require "tts"
@@ -49,8 +48,8 @@ end})
 ---@field remoteaddr string
 ---@field session_id string
 ---@field silence_start_time integer
----@field ch_ctrl core.sync.channel
----@field ch_device_write core.sync.channel
+---@field ch_ctrl silly.sync.channel
+---@field ch_device_write silly.sync.channel
 ---@field txt_cb fun(txt: string)
 ---@field pcm_cb fun(pcm: string)
 local xsession = {}
@@ -151,7 +150,7 @@ local function new_device_writer(session, sock)
 				end
 				if playing >= 180 then -- 缓冲区快满了
 					local need_sleep = playing - 180
-					core.sleep(need_sleep)
+					time.sleep(need_sleep)
 				end
 			elseif dat.type == "sync" then
 				logger.debugf("[xiaozhi] sync")
@@ -162,7 +161,7 @@ local function new_device_writer(session, sock)
 				logger.debugf("[xiaozhi] write text:%s", txt)
 			end
 			if dat.type == "tts" and dat.state == "sentence_start" then
-				core.sleep(10)
+				time.sleep(10)
 			end
 		end
 		logger.info("[xiaozhi] device_writer close")
@@ -238,7 +237,7 @@ local function new_llm_reader(session)
 end
 
 local function listening(session, dat, wg)
-	local now = time.nowsec()
+	local now = time.now() // 1000
 	local txt = asr_detect(session, dat)
 	if not txt or #txt == 0 then
 		if session.silence_start_time + conf.exit_after_silence_seconds < now then
@@ -272,8 +271,8 @@ local function listening(session, dat, wg)
 end
 
 ---@param uid number
----@param sock core.websocket.socket
----@param wg core.sync.waitgroup
+---@param sock silly.net.websocket.socket
+---@param wg silly.sync.waitgroup
 ---@return xiaozhi.session
 function xsession.new(uid, sock, wg)
 	local ch_device_write = channel.new()
@@ -333,7 +332,7 @@ function router.listen(session, req)
 	if req.state == "start" then
 		session.state = STATE_LISTENING
 		voice.reset(session.voice_ctx)
-		session.silence_start_time = time.nowsec()
+		session.silence_start_time = time.now() // 1000
 		logger.info("xiaozhi state: listening")
 	elseif req.state == "stop" then
 		session.state = STATE_CLOSE
@@ -345,7 +344,7 @@ function router.listen(session, req)
 		session:sendjson({type = "stt", text = "小智", session_id = session.session_id})
 		session:sendjson({type = "llm", text = "😊", emotion = "happy", session_id = session.session_id})
 		session:sendjson({type = "tts", state = "start", sample_rate = 16000, session_id = session.session_id, text = "开始检测"})
-		core.sleep(60)
+		time.sleep(60)
 		ch_llm_output:clear()
 		ch_llm_output:push("你好呀！")
 		ch_llm_output:push("")
@@ -366,6 +365,46 @@ function router.close(ctx, req)
 
 end
 
+---@param stream silly.net.http.h1.stream.server
+local function process(stream)
+	local sock, err = websocket.upgrade(stream)
+	if not sock then
+		logger.error("websocket upgrade failed: %s", err)
+		return
+	end
+	local wg = waitgroup.new()
+	local session = xsession.new(1, sock, wg)
+	while session.state ~= STATE_CLOSE do
+		local dat, typ = sock:read()
+		if not dat then
+			break
+		end
+		if typ == "close" or session.state == STATE_CLOSE then
+			break
+		end
+		if typ == "text" then
+			local req = json.decode(dat)
+			if not req then
+				break
+			end
+			router[req.type](session, req)
+		elseif typ == "binary" then
+			if session.state == STATE_LISTENING then
+				listening(session, dat, wg)
+			end
+		end
+	end
+	if session.ch_llm_input then
+		session.ch_llm_input:close()
+	end
+	session.ch_llm_output:close()
+	wg:wait()
+end
+
+return process
+
+--[[
+http.listen {}
 
 local server, err = websocket.listen {
 	addr = conf.xiaozhi_listen,
@@ -401,3 +440,4 @@ local server, err = websocket.listen {
 }
 
 logger.info("[xiaozhi] listen on", conf.xiaozhi_listen)
+]]

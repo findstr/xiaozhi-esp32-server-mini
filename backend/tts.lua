@@ -1,5 +1,3 @@
-local core = require "core"
-local time = require "core.time"
 local conf = require "conf"
 local tts = require ("tts." .. conf.tts.use)
 

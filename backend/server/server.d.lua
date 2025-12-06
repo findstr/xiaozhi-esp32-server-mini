@@ -1,5 +1,5 @@
 ---@class session
 ---@field uid string
 ---@field remoteaddr string
----@field ch_llm_input core.sync.channel
----@field ch_llm_output core.sync.channel
+---@field ch_llm_input silly.sync.channel
+---@field ch_llm_output silly.sync.channel

@@ -1,4 +1,4 @@
-local redis = require "core.db.redis"
+local redis = require "silly.store.redis"
 local conf = require "conf"
 
 local addr = string.format("%s:%s", conf.vector_db.redis.addr, conf.vector_db.redis.port)

@@ -1,4 +1,4 @@
-local json = require "core.json"
+local json = require "silly.encoding.json"
 local db = require "db"
 local embedding = require "embedding"
 local tostring = tostring

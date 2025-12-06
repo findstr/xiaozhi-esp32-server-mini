@@ -1,4 +1,4 @@
-local grpc = require "core.grpc"
+local grpc = require "silly.net.grpc"
 local protoc = require "protoc"
 local conf = require "conf"
 
@@ -22,7 +22,7 @@ assert(client, err)
 
 
 
----@return core.grpc.stream?, string? error
+---@return silly.net.grpc.stream?, string? error
 local function vad()
 	local stream, err = client.Feed()
 	return stream, err

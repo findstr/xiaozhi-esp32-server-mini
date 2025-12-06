@@ -1,7 +1,7 @@
-local http = require "core.http"
-local logger = require "core.logger"
-local hash = require "core.crypto.hash"
-local json = require "core.json"
+local http = require "silly.net.http"
+local logger = require "silly.logger"
+local hash = require "silly.crypto.hash"
+local json = require "silly.encoding.json"
 local conf = require "conf"
 local domain = 'https://apis.map.qq.com'
 local lan_fmt = '/ws/location/v1/ip?key=%s'

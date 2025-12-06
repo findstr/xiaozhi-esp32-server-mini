@@ -241,7 +241,7 @@ static int lvoice_detect_opus(lua_State *L)
 	}
 	if (vad->silence_ms >= vad->max_silence_ms) {
 		std::vector<uint8_t> output_wav;
-		auto silence_samples = (vad->silence_ms / OPUS_FRAME_MS) - VAD_POST_FRAMES;
+		auto silence_samples = (vad->silence_ms / OPUS_FRAME_MS) - VAD_post_FRAMES;
 		if (silence_samples > 0) {
 			vad->vad_speech_pcm.erase(vad->vad_speech_pcm.end() - silence_samples * OPUS_FRAME_SAMPLES,
 				vad->vad_speech_pcm.end());

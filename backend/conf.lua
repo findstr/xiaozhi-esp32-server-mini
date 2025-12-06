@@ -1,7 +1,5 @@
 local M = {
-	http_listen = "0.0.0.0:8881",				-- WEB前端访问的地址
-	xiaozhi_listen = "0.0.0.0:8880",			-- 小智监听的地址
-	xiaozhi_websocket = os.getenv("XIAOZHI_WEBSOCKET"),	-- 小智访问的地址
+	xiaozhi_websocket = "ws://192.168.31.228/xiaozhi/v1/", -- 小智访问的地址
 	exit_after_silence_seconds = 30, 			-- 60秒后自动退出
 	vad = {
 		model_path = "../models/silero_vad.onnx",

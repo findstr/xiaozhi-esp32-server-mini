@@ -1,5 +1,5 @@
-local json = require "core.json"
-local redis = require "core.db.redis"
+local json = require "silly.encoding.json"
+local redis = require "silly.store.redis"
 local blogsDir = "./backend/klib/blogs/"
 local db, err= redis.new {
 	addr = "127.0.0.1:6379",

@@ -1,7 +1,6 @@
-local core = require "core"
-local time = require "core.time"
-local http = require "core.http"
-local logger = require "core.logger"
+local time = require "silly.time"
+local http = require "silly.net.http"
+local logger = require "silly.logger"
 local conf = require "conf"
 
 local region = conf.tts.azure.region
@@ -11,7 +10,7 @@ local api_key = conf.tts.azure.api_key
 local token = ""
 local token_time = 0
 local function get_token()
-	local now = time.nowsec()
+	local now = time.now() // 1000
 	if now - token_time < 500 then
 		return token
 	end
@@ -20,7 +19,7 @@ local function get_token()
 		["content-type"] = "application/x-www-form-urlencoded",
 		["content-length"] = 0,
 	}
-	local res, err = http.POST(token_url, headers, "")
+	local res, err = http.post(token_url, headers, "")
 	if not res then
 		logger.error("[tts.azure] get token failed, err:", err)
 		return nil, err
@@ -52,7 +51,7 @@ local function tts(text, pcm_cb)
 		["user-agent"] = "xiaozhi",
 	}
 	logger.debugf("[tts.azure] tts text:`%s` start", text)
-	local res, err = http.POST(api_url, headers, ssml)
+	local res, err = http.post(api_url, headers, ssml)
 	if not res then
 		logger.error("[tts.azure] tts failed, err:", err)
 		return false

@@ -1,8 +1,7 @@
-local core = require "core"
-local websocket = require "core.websocket"
-local logger = require "core.logger"
-local hash = require "core.crypto.hash"
-local utils = require "core.crypto.utils"
+local websocket = require "silly.net.websocket"
+local logger = require "silly.logger"
+local hash = require "silly.crypto.hash"
+local utils = require "silly.crypto.utils"
 
 local mpg123 = require "voice.mpg123"
 
@@ -155,7 +154,7 @@ local function tts(text, pcm_cb)
 			break
 		end
 		logger.errorf("[tts.edge] connect failed: %s retry:%s", err, i)
-		core.sleep(100)
+		time.sleep(100)
 	end
 	if not sock then
 		logger.errorf("[tts.edge] connect failed", err)

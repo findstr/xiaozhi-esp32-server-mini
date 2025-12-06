@@ -1,8 +1,7 @@
-local core = require "core"
-local http = require "core.http"
-local json = require "core.json"
-local logger = require "core.logger"
-local base64 = require "core.base64"
+local http = require "silly.net.http"
+local json = require "silly.encoding.json"
+local logger = require "silly.logger"
+local base64 = require "silly.encoding.base64"
 local conf = require "conf"
 
 local api_url = conf.embedding.openai.api_url
@@ -25,14 +24,14 @@ local function embedding(txt)
 	})
 	local res, err
 	for i = 1, 2 do
-		res, err = http.POST(api_url, {
+		res, err = http.post(api_url, {
 			["authorization"] = key,
 			["content-type"] = "application/json",
 		}, body)
 		if res then
 			break
 		end
-		core.sleep(100)
+		time.sleep(100)
 	end
 	if not res then
 		logger.errorf("[embedding.openai] content:`%s` embedding: %s", txt, err)
