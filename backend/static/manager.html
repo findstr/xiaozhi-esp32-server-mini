@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>小智管理</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/app.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:16px;">
+        <div>
+          <div class="brand">运行管理</div>
+          <div class="sub">配置 / 总结 / 日志 / 会话</div>
+          <div class="small">保存配置后即时生效，无需重启</div>
+        </div>
+        <button id="themeToggle" class="button secondary">浅色主题</button>
+      </div>
+    </header>
+
+    <section class="section">
+      <div class="panel">
+        <h2>核心配置</h2>
+        <p>在这里直接编辑字段，保存后写入本地。</p>
+        <div class="grid two">
+          <div>
+            <label class="small">HTTP 监听</label>
+            <input id="http_listen" class="input" placeholder=":80" />
+          </div>
+          <div>
+            <label class="small">WebSocket 地址</label>
+            <input id="xiaozhi_websocket" class="input" />
+          </div>
+          <div>
+            <label class="small">退出静默秒数</label>
+            <input id="exit_after_silence_seconds" class="input" type="number" />
+          </div>
+          <div>
+            <label class="small">历史总结滚动重写频率</label>
+            <input id="summary_rewrite_every" class="input" type="number" />
+          </div>
+          <div>
+            <label class="small">上下文 token 上限</label>
+            <input id="context_max_tokens" class="input" type="number" />
+          </div>
+          <div>
+            <label class="small">上下文最大消息数</label>
+            <input id="session_context_max_messages" class="input" type="number" />
+          </div>
+          <div>
+            <label class="small">总结静默秒数</label>
+            <input id="history_silence_seconds" class="input" type="number" />
+          </div>
+          <div>
+            <label class="small">最近总结轮数</label>
+            <input id="recent_rounds" class="input" type="number" />
+          </div>
+        </div>
+        <div style="display:flex; gap:10px; margin-top:12px;">
+          <button id="configRefresh" class="button secondary">刷新配置</button>
+          <button id="configSave" class="button">保存配置</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="panel">
+        <h2>ASR 配置集</h2>
+        <p>支持多套配置，命名后可切换。</p>
+        <div style="display:flex; gap:10px; margin-bottom:10px;">
+          <select id="asrActive" class="input"></select>
+          <button id="asrAdd" class="button secondary">新增</button>
+          <button id="asrDelete" class="button secondary">删除</button>
+        </div>
+        <details open>
+          <summary class="small">当前配置详情</summary>
+          <div class="grid two" style="margin-top:10px;">
+            <div>
+              <label class="small">配置名</label>
+              <input id="asr_name" class="input" />
+            </div>
+            <div>
+              <label class="small">ASR 类型</label>
+              <input id="asr_use" class="input" placeholder="tencent" />
+            </div>
+            <div>
+              <label class="small">Secret Id</label>
+              <input id="asr_secret_id" class="input" />
+            </div>
+            <div>
+              <label class="small">Secret Key</label>
+              <input id="asr_secret_key" class="input" />
+            </div>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="panel">
+        <h2>TTS 配置集</h2>
+        <p>支持多套配置，命名后可切换。</p>
+        <div style="display:flex; gap:10px; margin-bottom:10px;">
+          <select id="ttsActive" class="input"></select>
+          <button id="ttsAdd" class="button secondary">新增</button>
+          <button id="ttsDelete" class="button secondary">删除</button>
+        </div>
+        <details open>
+          <summary class="small">当前配置详情</summary>
+          <div class="grid two" style="margin-top:10px;">
+            <div>
+              <label class="small">配置名</label>
+              <input id="tts_name" class="input" />
+            </div>
+            <div>
+              <label class="small">TTS 类型</label>
+              <input id="tts_use" class="input" placeholder="edge" />
+            </div>
+            <div>
+              <label class="small">Azure Region</label>
+              <input id="tts_azure_region" class="input" />
+            </div>
+            <div>
+              <label class="small">Azure Api Key</label>
+              <input id="tts_azure_api_key" class="input" />
+            </div>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="panel">
+        <h2>LLM 配置集</h2>
+        <p>支持多套配置，命名后可切换。</p>
+        <div style="display:flex; gap:10px; margin-bottom:10px;">
+          <select id="llmActive" class="input"></select>
+          <button id="llmAdd" class="button secondary">新增</button>
+          <button id="llmDelete" class="button secondary">删除</button>
+        </div>
+        <details open>
+          <summary class="small">当前配置详情</summary>
+          <div class="grid two" style="margin-top:10px;">
+            <div>
+              <label class="small">配置名</label>
+              <input id="llm_name" class="input" />
+            </div>
+            <div>
+              <label class="small">Chat API URL</label>
+              <input id="llm_chat_api_url" class="input" />
+            </div>
+            <div>
+              <label class="small">Chat API Key</label>
+              <input id="llm_chat_api_key" class="input" />
+            </div>
+            <div>
+              <label class="small">Chat Model</label>
+              <input id="llm_chat_model" class="input" />
+            </div>
+            <div>
+              <label class="small">Think API URL</label>
+              <input id="llm_think_api_url" class="input" />
+            </div>
+            <div>
+              <label class="small">Think API Key</label>
+              <input id="llm_think_api_key" class="input" />
+            </div>
+            <div>
+              <label class="small">Think Model</label>
+              <input id="llm_think_model" class="input" />
+            </div>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section class="section grid two">
+      <div class="panel">
+        <h2>历史总结</h2>
+        <p>支持查看和修改，全局共享。</p>
+        <textarea id="summaryArea" class="textarea" spellcheck="false"></textarea>
+        <div style="display:flex; gap:10px; margin-top:12px;">
+          <button id="summaryRefresh" class="button secondary">刷新总结</button>
+          <button id="summarySave" class="button">保存总结</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>对话日志</h2>
+        <p>JSONL 文件。上传会覆盖当前日志。</p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <a class="button secondary" href="/manager/log/download">下载日志</a>
+          <label class="button">
+            上传日志
+            <input id="logUpload" type="file" accept=".jsonl,.txt" style="display:none;" />
+          </label>
+        </div>
+        <div id="logStatus" class="small" style="margin-top:8px;"></div>
+      </div>
+    </section>
+
+    <section class="section grid two">
+      <div class="panel">
+        <h2>会话浏览</h2>
+        <p>按 session 查看历史上下文。</p>
+        <div style="display:flex; gap:10px; margin-bottom:10px;">
+          <button id="sessionsRefresh" class="button secondary">刷新会话</button>
+        </div>
+        <div id="sessionsList" style="display:flex; flex-direction:column; max-height:180px; overflow:auto;"></div>
+      </div>
+      <div class="panel">
+        <h2>会话详情</h2>
+        <p>展示最近上下文片段。</p>
+        <textarea id="sessionDetail" class="textarea" spellcheck="false"></textarea>
+      </div>
+    </section>
+
+    <section class="section grid two">
+      <div class="panel">
+        <h2>快捷入口</h2>
+        <p>切换到对话界面或首页。</p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <a class="button secondary" href="/">返回首页</a>
+          <a class="button" href="/chat-ui">对话界面</a>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">配置保存即写入 `data/config.json`</footer>
+  </div>
+
+  <script src="/assets/manager.js"></script>
+  <script>
+    const btn = document.getElementById('themeToggle');
+    const applyTheme = (t) => {
+      document.body.classList.toggle('light', t === 'light');
+      btn.textContent = t === 'light' ? '深色主题' : '浅色主题';
+    };
+    const saved = localStorage.getItem('theme') || 'light';
+    applyTheme(saved);
+    btn.addEventListener('click', () => {
+      const next = document.body.classList.contains('light') ? 'dark' : 'light';
+      localStorage.setItem('theme', next);
+      applyTheme(next);
+    });
+  </script>
+</body>
+</html>

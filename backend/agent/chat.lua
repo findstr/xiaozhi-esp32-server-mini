@@ -19,7 +19,7 @@ local prompt = [[
 
 ---@param session session
 local function chat(session)
-	local mem = memory.new(session.uid)
+	local mem = memory.new(session.uid, session.session_id)
 	local ch_in = session.ch_llm_input
 	local ch_out = session.ch_llm_output
 	while true do

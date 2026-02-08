@@ -1,62 +1,68 @@
 local M = {
+	http_listen = ":80",
 	xiaozhi_websocket = "ws://192.168.31.228/xiaozhi/v1/", -- 小智访问的地址
-	exit_after_silence_seconds = 30, 			-- 60秒后自动退出
+	exit_after_silence_seconds = 60, -- 60秒后自动退出
+	history = {
+		log_file = "backend/data/chat.jsonl",
+		summary_file = "backend/data/summary.txt",
+		archive_file = "backend/data/chat_archive.jsonl",
+		silence_seconds = 60,
+		recent_rounds = 500,
+		session_context_max_messages = 100,
+		context_max_tokens = 2000,
+		flush_interval_seconds = 10,
+		summary_rewrite_every = 20,
+		cleanup_max_entries = 5000,
+		cleanup_max_days = 30,
+	},
 	vad = {
 		model_path = "../models/silero_vad.onnx",
 	},
 	asr = {
-		use = "tencent",
-		tencent = {
-			secret_id = "----------------------------------",	-- 腾讯ASR的ID
-			secret_key = "----------------------------------",	-- 腾讯ASR的KEY
+		use_name = "默认",
+		profiles = {
+			{
+				name = "默认",
+				use = "tencent",
+				tencent = {
+					secret_id = "----------------------------------",
+					secret_key = "----------------------------------",
+				}
+			}
 		}
 	},
 	tts = {
-		use = "edge",
-		azure = {
-			region = "eastasia",					-- 语音合成的区域(这里是东亚, 可以切换到其他区域)
-			api_key = "---------------------",			-- API密钥
+		use_name = "默认",
+		profiles = {
+			{
+				name = "默认",
+				use = "edge",
+				azure = {
+					region = "eastasia",
+					api_key = "---------------------",
+				}
+			}
 		}
 	},
-	-- 嵌入模型
-	embedding = {
-		use = "openai", -- 这里填openai, 默认不开启本地嵌入模型，因为本地嵌入模型需要大量的内存
-		openai = {
-			api_url = "https://api.siliconflow.cn/v1/embeddings",
-			api_key = "Bearer --------------------------------",	-- API密钥
-			cn_model = "BAAI/bge-m3",
-			en_model = "BAAI/bge-large-en-v1.5",
-		},
+	llm = {
+		use_name = "默认",
+		profiles = {
+			{
+				name = "默认",
+				chat = {
+					api_url = "https://api.siliconflow.cn/v1/chat/completions",
+					api_key = "Bearer ---------------------",
+					model = "THUDM/glm-4-9b-chat",
+				},
+				think = {
+					api_url = "https://api.siliconflow.cn/v1/chat/completions",
+					api_key = "Bearer ---------------------",
+					model = "THUDM/glm-4-9b-chat",
+				},
+			}
+		}
 	},
-
-	-- 大模型
-	llm = { -- 只支持兼容openai的API
-		intent = {
-			api_url = "https://api.siliconflow.cn/v1/chat/completions",
-			api_key = "Bearer ---------------------",
-			model = "Qwen/Qwen2.5-7B-Instruct", -- 聊天模型，主要用来对话，可以适当降低精度，以提高响应速度
-		},
-		chat = {
-			api_url = "https://api.siliconflow.cn/v1/chat/completions",
-			api_key = "Bearer ---------------------",	-- API密钥
-			model = "THUDM/glm-4-9b-chat", -- 聊天模型，主要用来对话，可以适当降低精度，以提高响应速度
-		},
-		think = {
-			api_url = "https://api.siliconflow.cn/v1/chat/completions",
-			api_key = "Bearer ---------------------",	-- API密钥
-			model = "THUDM/glm-4-9b-chat", -- 思考模型，主要用来对话，可以适当降低精度，以提高响应速度(用来做记忆总结)
-		},
-	},
-	-- 向量数据库
-	vector_db = { -- 向量数据库
-		use = "redis", -- 目前只支持redis
-		redis = {
-			addr = "127.0.0.1",
-			port = "16305",
-			auth = "123456",
-		},
-	},
-	location = {	--定位服务
+	location = {
 		use = "tencent",
 		tencent = {
 			key = "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF",

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>小智对话</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/app.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:16px;">
+        <div>
+          <div class="brand">对话工作台</div>
+          <div class="sub">SSE / Cookie Session</div>
+        </div>
+        <button id="themeToggle" class="button secondary">浅色主题</button>
+      </div>
+    </header>
+
+    <section class="section">
+      <div class="panel chat-shell">
+        <div id="chatLog" class="chat-log"></div>
+        <div class="chat-input">
+          <input id="chatInput" class="input" placeholder="输入一句话，然后回车" />
+          <button id="chatSend" class="button">发送</button>
+        </div>
+        <div id="chatStatus" class="small" style="margin-top:8px;"></div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <a href="/">返回首页</a>
+    </footer>
+  </div>
+
+  <script src="/assets/chat.js"></script>
+  <script>
+    const btn = document.getElementById('themeToggle');
+    const applyTheme = (t) => {
+      document.body.classList.toggle('light', t === 'light');
+      btn.textContent = t === 'light' ? '深色主题' : '浅色主题';
+    };
+    const saved = localStorage.getItem('theme') || 'light';
+    applyTheme(saved);
+    btn.addEventListener('click', () => {
+      const next = document.body.classList.contains('light') ? 'dark' : 'light';
+      localStorage.setItem('theme', next);
+      applyTheme(next);
+    });
+  </script>
+</body>
+</html>

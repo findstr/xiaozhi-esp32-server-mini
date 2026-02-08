@@ -18,7 +18,7 @@ local mt = {__index = M, __close = function(self)
 end }
 
 local alpn_protos = {"http/1.1", "h2"}
----@alias llm_name "chat" | "think" | "intent"
+---@alias llm_name "chat" | "think"
 
 ---@return silly.net.http.h1.stream|silly.net.http.h2.stream|nil, string|number|nil
 local function open_stream(model_conf, txt)

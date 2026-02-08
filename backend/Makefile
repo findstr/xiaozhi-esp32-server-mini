@@ -1,7 +1,7 @@
 .PHONY: all deps
 
 ONNXRUNTIME = ./deps/onnxruntime-linux
-INCLUDE = -I$(ONNXRUNTIME)/include $(MYCFLAGS)
+INCLUDE = -I$(ONNXRUNTIME)/include $(MYCFLAGS) -I/home/zhoupy/silly/deps/lua
 LIB_PATH = -L$(ONNXRUNTIME)/lib
 
 CFLAGS = -g3 -std=c++20 -fPIC $(LIB_PATH)

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>小智后端入口</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/app.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:16px;">
+        <div>
+          <div class="brand">小智 Control Deck</div>
+          <div class="sub">后端管理与对话入口</div>
+        </div>
+        <button id="themeToggle" class="button secondary">浅色主题</button>
+      </div>
+    </header>
+    <section class="section grid two">
+      <div class="panel">
+        <h2>对话工作台</h2>
+        <p>轻量化聊天界面，直接连到当前后端。</p>
+        <a class="button" href="/chat-ui">进入对话</a>
+      </div>
+      <div class="panel">
+        <h2>运行管理</h2>
+        <p>配置编辑、日志上传下载、历史总结。</p>
+        <a class="button secondary" href="/manager">进入管理</a>
+      </div>
+    </section>
+    <footer class="footer">必要时配置保存后重启生效</footer>
+  </div>
+  <script>
+    const btn = document.getElementById('themeToggle');
+    const applyTheme = (t) => {
+      document.body.classList.toggle('light', t === 'light');
+      btn.textContent = t === 'light' ? '深色主题' : '浅色主题';
+    };
+    const saved = localStorage.getItem('theme') || 'light';
+    applyTheme(saved);
+    btn.addEventListener('click', () => {
+      const next = document.body.classList.contains('light') ? 'dark' : 'light';
+      localStorage.setItem('theme', next);
+      applyTheme(next);
+    });
+  </script>
+</body>
+</html>

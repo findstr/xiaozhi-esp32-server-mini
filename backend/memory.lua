@@ -2,283 +2,432 @@ local time = require "silly.time"
 local json = require "silly.encoding.json"
 local logger = require "silly.logger"
 local mutex = require "silly.sync.mutex"
+local silly = require "silly"
+local task = require "silly.task"
 local conf = require "conf"
 local openai = require "openai"
-local embedding = require "embedding"
-local db = require "db"
 
-local tonumber = tonumber
-local setmetatable = setmetatable
-local date = os.date
-local format = string.format
-local concat = table.concat
-
-local model_conf = conf.llm.think
-
----@class memory
----@field uid number
----@field working {role: string, content: string}[]
----@field compressed string[]
----@field profile {content: string}
 local M = {}
 local mt = {__index = M}
 
-local dbk_profile<const> = "profile"
-local dbk_mem<const>  = "mem:%s"
-local memory_index_name<const> = "memory_idx"
-local dbk_mem_id = time.now() * 1000
+local summary_lock = mutex.new()
 
-local uid_lock = mutex.new()
+local state = {
+	inited = false,
+	logs = {},
+	unsaved = {},
+	sessions = {},
+	session_meta = {},
+	summary = "",
+	last_activity = 0,
+	summary_worker_running = false,
+	flush_worker_running = false,
+	summary_count = 0,
+	config = {},
+}
 
-local user_profile = setmetatable({}, {
-	__mode = "v",
-	__index = function(t, k)
-		local ok, v = db:hget(dbk_profile, k)
-		if not ok then
-			logger.errorf("[memory] profile uid:%s failed: %s", k, v)
-			return {content = ""}
-		end
-		local p = {content = v or ""}
-		t[k] = p
-		return p
+local function read_file(path)
+	local f = io.open(path, "r")
+	if not f then
+		return ""
 	end
-})
+	local content = f:read("a")
+	f:close()
+	return content or ""
+end
 
-local function create_index()
-	-- check index if exists
-	local ok, res = db:call("FT.INFO", memory_index_name)
-	if ok then
-		logger.infof("[memory] index %s already exists", memory_index_name)
-		return true
-	end
-	-- create vector index
-	local ok, err = db:call("FT.CREATE", memory_index_name, "ON", "HASH",
-		"PREFIX", "1", "mem:",
-		"SCHEMA",
-			"uid", "TAG",
-			"timestamp", "NUMERIC", "SORTABLE",
-			"embedding", "VECTOR", "HNSW", "6",
-			"TYPE", "FLOAT32",
-			"DIM", "1024",
-			"DISTANCE_METRIC", "COSINE")
-	if not ok then
-		logger.errorf("[memory] create index failed: %s", err)
+local function write_file(path, content)
+	local f, err = io.open(path, "w")
+	if not f then
+		logger.errorf("[memory] write file failed: %s", err)
 		return false
 	end
-	logger.infof("[memory] create index success")
+	f:write(content or "")
+	f:close()
 	return true
 end
 
-local function retrieval(uid, msg)
-	local vector, err = embedding(msg)
-	if not vector then
-		logger.errorf("[memory] uid:%s embedding failed: %s", uid, err)
-		return nil, err
+local function append_lines(path, lines)
+	if #lines == 0 then
+		return true
 	end
-	local ok, res = db:call("FT.SEARCH",
-		memory_index_name,
-		"@uid:{$uid}=>[KNN $n @embedding $vector as score]",
-		"PARAMS", "6",
-		"n", 5,
-		"vector", vector,
-		"uid", uid,
-		"SORTBY", "timestamp", "DESC",
-		"RETURN", "3",
-		"chk_id", "score", "text",
-		"DIALECT", "2"
-	)
-	if not ok then
-		logger.errorf("[memory] uid:%s search failed: %s", uid, res)
-		return nil, err
+	local f, err = io.open(path, "a")
+	if not f then
+		logger.errorf("[memory] append file failed: %s", err)
+		return false
 	end
-	if not res or #res < 2 then
-		return nil, "no result"
+	for _, line in ipairs(lines) do
+		f:write(line, "\n")
 	end
-	local results = {
-		"以下是与当前查询相关的过去会话记忆："
-	}
-	for i=2, #res, 2 do
-		local r = {}
-		local dbv = res[i+1]
-		for j = 1, #dbv, 2 do
-			local k = dbv[j]
-			local v = dbv[j+1]
-			r[k] = v
+	f:close()
+	return true
+end
+
+local function decode_lines(lines)
+	local entries = {}
+	for _, line in ipairs(lines) do
+		if #line > 0 then
+			local ok, obj = pcall(json.decode, line)
+			if ok and obj then
+				entries[#entries + 1] = obj
+			end
 		end
-		local score = 1.0 - tonumber(r.score)
-		results[#results+1] = format("[相关性: %.2f | 时间: %s] %s",
-			score, date("%Y-%m-%d %H:%M:%S", r.timestamp), r.text)
 	end
-	return concat(results, "\n\n"), nil
+	return entries
 end
 
-local function summarize(uid, working, summary)
-	local all_context = {}
-	all_context[#all_context+1] = {
-		role = "system",
-		content = [[
-# 对话记忆整合指令
-
-你是一个对话信息整合专家，负责从对话中提取关键信息，用于长期记忆建档。
-请仅提取用户和 AI 的重要交互内容，不包含闲聊、寒暄、感叹、重复信息等无效内容。
-输出必须遵循以下格式，字段名称、顺序、标点必须完全一致。**禁止添加任何分析、评论、解释或问题**。
-
-## 输出要求：
-- 每个字段**必须填写**，如无内容请写 “无”；
-- 每个字段中内容应以**要点形式**（编号或项目符号）列出；
-- 每个字段最多提取 **3 条关键信息**，内容应**简洁明确**；
-- 输出不超过 200 字。
-
-## 输出格式：
-主题: [1~2句高度概括本轮对话的主题]
-需求:
-- [用户的目标、问题、请求等]
-- [...]
-- [...]
-结论:
-- [本轮达成的共识、明确事项或决定]
-- [...]
-- [...]
-偏好:
-- [用户表达的偏好，如工具、方式、风格等]
-- [...]
-- [...]
-待办:
-- [尚未完成或后续需要行动的事项]
-- [...]
-- [...]
-其他:
-- [其他无法归类但值得记录的关键信息]
-- [...]
-]]
-	}
-	all_context[#all_context+1] = {
-		role = "user",
-		content = format([[
-请你根据以下对话内容提取关键信息：
-
-%s
-
-请按照输出格式整理信息。
-]], json.encode(working))
-	}
-	logger.debugf("[memory] update_summary uid:%s request: %s", uid, json.encode(all_context))
-	local ai<close>, err = openai.open(model_conf, {
-		messages = all_context,
-		temperature = 0.1, -- 更低的温度提高确定性
-		top_p = 0.3,       -- 限制采样范围
-		frequency_penalty = 0.5, -- 降低重复
-	})
-	if not ai then
-		logger.errorf("[memory] update_summary uid:%s failed: %s", uid, err)
-		return ""
+local function estimate_tokens(text)
+	if not text or #text == 0 then
+		return 0
 	end
-	local response, err = ai:read()
-	if not response then
-		logger.errorf("[memory] update_summary uid:%s failed: %s", uid, err)
-		return ""
+	local ascii = 0
+	local non_ascii = 0
+	local i = 1
+	local len = #text
+	while i <= len do
+		local c = text:byte(i)
+		if c < 128 then
+			ascii = ascii + 1
+			i = i + 1
+		elseif c < 224 then
+			non_ascii = non_ascii + 1
+			i = i + 2
+		elseif c < 240 then
+			non_ascii = non_ascii + 1
+			i = i + 3
+		else
+			non_ascii = non_ascii + 1
+			i = i + 4
+		end
 	end
-	return response.choices[1].message.content
+	local est = math.ceil(ascii / 4) + non_ascii
+	return est
 end
 
-local function save_chats(user)
-	local working = user.working
-	local content = summarize(user.uid, working, user.compressed)
-	if not content or #content == 0 then
-		logger.errorf("[memory] save_chats uid:%s failed: %s", user.uid, "no content")
+local function load_config()
+	local history_conf = conf.history or {}
+	state.config = {
+		log_file = history_conf.log_file or "data/chat.jsonl",
+		summary_file = history_conf.summary_file or "data/summary.txt",
+		archive_file = history_conf.archive_file or "data/chat_archive.jsonl",
+		silence_seconds = history_conf.silence_seconds or 60,
+		recent_rounds = history_conf.recent_rounds or 500,
+		session_context_max_messages = history_conf.session_context_max_messages or 100,
+		context_max_tokens = history_conf.context_max_tokens or 2000,
+		cleanup_max_entries = history_conf.cleanup_max_entries or 5000,
+		cleanup_max_days = history_conf.cleanup_max_days or 30,
+		flush_interval_seconds = history_conf.flush_interval_seconds or 10,
+		summary_rewrite_every = history_conf.summary_rewrite_every or 20,
+	}
+end
+
+local function ensure_init()
+	if state.inited then
 		return
 	end
-	local vector, err = embedding(content)
-	if not vector then
-		logger.errorf("[memory] uid:%s save_chats embedding failed: %s", user.uid, err)
-		return nil, err
+	load_config()
+	state.summary = read_file(state.config.summary_file)
+	local f = io.open(state.config.log_file, "r")
+	if f then
+		for line in f:lines() do
+			if #line > 0 then
+				local ok, obj = pcall(json.decode, line)
+				if ok and obj then
+					state.logs[#state.logs + 1] = obj
+					local sid = obj.session_id or ""
+					if #sid > 0 then
+						local s = state.sessions[sid]
+						if not s then
+							s = {history = {}}
+							state.sessions[sid] = s
+						end
+						s.history[#s.history + 1] = {role = obj.role, content = obj.content}
+						local meta = state.session_meta[sid]
+						if not meta then
+							meta = {session_id = sid, count = 0, last_ts = 0}
+							state.session_meta[sid] = meta
+						end
+						meta.count = meta.count + 1
+						meta.last_ts = math.max(meta.last_ts, obj.ts or 0)
+					end
+				end
+			end
+		end
+		f:close()
 	end
-	local id = dbk_mem_id + 1
-	dbk_mem_id = id
-	local dbk = format(dbk_mem, id)
-	local ok, err = db:pipeline {
-		{"HMSET", dbk,
-			"uid", user.uid,
-			"embedding", vector,
-			"text", content,
-			"timestamp", os.time()
+	state.inited = true
+	if not state.flush_worker_running then
+		state.flush_worker_running = true
+		task.fork(function()
+			while true do
+				time.sleep(state.config.flush_interval_seconds)
+				if #state.unsaved > 0 then
+					append_lines(state.config.log_file, state.unsaved)
+					state.unsaved = {}
+				end
+			end
+		end)
+	end
+end
+
+local function build_recent_entries()
+	local needed_rounds = state.config.recent_rounds
+	local entries = {}
+	local rounds = 0
+	for i = #state.logs, 1, -1 do
+		local e = state.logs[i]
+		entries[#entries + 1] = e
+		if e.role == "assistant" then
+			rounds = rounds + 1
+			if rounds >= needed_rounds then
+				break
+			end
+		end
+	end
+	local out = {}
+	for i = #entries, 1, -1 do
+		out[#out + 1] = entries[i]
+	end
+	return out
+end
+
+local function postprocess_summary(text)
+	if not text or #text == 0 then
+		return ""
+	end
+	local lines = {}
+	for line in text:gmatch("[^\r\n]+") do
+		local cleaned = line:gsub("%s+$", "")
+		if #cleaned > 0 then
+			lines[#lines + 1] = cleaned
+		end
+	end
+	local seen = {}
+	local out = {}
+	for _, line in ipairs(lines) do
+		local key = line:gsub("%s+", " "):lower()
+		if not seen[key] then
+			seen[key] = true
+			out[#out + 1] = line
+		end
+	end
+	return table.concat(out, "\n")
+end
+
+local function update_summary(rewrite)
+	local entries = build_recent_entries()
+	if #entries == 0 then
+		return
+	end
+	local prev_summary = state.summary or ""
+	local system_prompt = [[
+你是对话历史的整理员，需要把多轮对话压缩成高质量的长期总结。
+要求：
+1. 只保留重要事实、明确需求、已达成共识、长期偏好。
+2. 忽略寒暄、重复、无效内容。
+3. 总结必须简洁，强调更重要的事情。
+4. 允许在已有总结上更新或修正。
+输出请使用简洁的分段文本，不要输出 JSON，不要加入任何解释。
+]]
+	if rewrite then
+		system_prompt = [[
+你是对话历史的整理员，请基于已有总结与最近对话，重新整理出更干净、更准确的长期总结。
+要求：
+1. 去重、去噪、纠错，突出最重要的信息。
+2. 保留长期偏好、关键事实、明确需求、已达成共识。
+3. 文字要简洁、结构清晰。
+输出请使用简洁的分段文本，不要输出 JSON，不要加入任何解释。
+]]
+	end
+	local messages = {
+		{
+			role = "system",
+			content = system_prompt
 		},
-		{"EXPIRE", dbk, 60 * 60 * 24 * 30}
+		{
+			role = "user",
+			content = string.format("已有总结：\n%s\n\n最近对话记录（JSON 数组）：\n%s\n\n请输出更新后的总结。", prev_summary, json.encode(entries))
+		},
 	}
-	if not ok then
-		logger.errorf("[memory] uid:%s save_chats failed: %s", user.uid, err)
+	local model_conf = conf.llm and conf.llm.think
+	if not model_conf then
+		logger.error("[memory] think model not configured")
 		return
 	end
-	logger.infof("[memory] uid:%s save_chats `%s` success", user.uid, content)
-end
-local function update_profile(user)
-	local all_context = {}
-	all_context[#all_context+1] = {
-		role = "system",
-		content = [[
-# 用户画像生成器
-你是一个用户画像提取与维护专家，任务是根据当前对话内容**更新并生成**用户画像。
-- 请在分析后，根据需要修改、增加或补充画像中的字段。
-- 如果当前对话没有新增信息，请原样保留所有字段内容，不可进行空洞总结或删减。
-
-格式严格如下，不添加额外内容、不改变字段顺序、不增加额外字段：
-<用户画像>
-兴趣: [列出兴趣点，多个用逗号分隔]
-职业: [简明准确地描述职业]
-需求: [总结用户当前表达的主要需求或目标]
-偏好: [总结用户偏好的工具、语言、交互方式等]
-背景: [历史对话中提取的有价值背景信息]
-</用户画像>
-]]
-	}
-	local lock<close> = uid_lock:lock(user.uid)
-	all_context[#all_context+1] = {
-		role = "user",
-		content = format([[
-用户当前画像：
-%s
-用户当前对话记录:
-%s
-
-请根据当前对话内容更新用户画像。
-]], user.profile.content, json.encode(user.working)),
-	}
 	local ai<close>, err = openai.open(model_conf, {
-		messages = all_context,
-		temperature = 0.0, -- 降至最低以获得最大确定性
-		top_p = 0.1, -- 进一步限制采样范围
-		frequency_penalty = 0.2, -- 略微降低，因为过高可能导致避开必要的格式词
-		presence_penalty = 0.0, -- 添加轻微的惩罚以避免引入新主题
-		max_tokens = 256 -- 限制输出长度，只需要画像部分
+		messages = messages,
+		temperature = 0.1,
+		top_p = 0.3,
+		frequency_penalty = 0.3,
 	})
 	if not ai then
-		logger.errorf("[memory] update_profile failed: %s", err)
+		logger.errorf("[memory] summary failed: %s", err)
 		return
 	end
 	local response, err = ai:read()
 	if not response then
-		logger.errorf("[memory] update_profile failed: %s", err)
+		logger.errorf("[memory] summary read failed: %s", err)
 		return
 	end
-	local content = response.choices[1].message.content
-	logger.debugf("[memory] update_profile uid:%s content: %s", user.uid, content)
-	user.profile.content = content
-	local ok, err = db:hset(dbk_profile, user.uid, content)
-	logger.infof("[memory] update_profile uid:%s result: %s err: %s", user.uid, ok, err)
+	local content = response.choices[1].message.content or ""
+	if #content > 0 then
+		content = postprocess_summary(content)
+		state.summary = content
+		write_file(state.config.summary_file, content)
+	end
 end
 
-function M.start()
-	create_index()
+local function cleanup_logs()
+	if #state.logs == 0 then
+		return
+	end
+	local now = os.time()
+	local cutoff = now - state.config.cleanup_max_days * 24 * 60 * 60
+	local keep = {}
+	local archive = {}
+	local keep_recent_start = math.max(1, #state.logs - (state.config.recent_rounds * 2) + 1)
+	for i, entry in ipairs(state.logs) do
+		if i >= keep_recent_start then
+			keep[#keep + 1] = entry
+		else
+			local ts = entry.ts
+			if state.config.cleanup_max_days > 0 and ts and ts >= cutoff then
+				keep[#keep + 1] = entry
+			else
+				archive[#archive + 1] = entry
+			end
+		end
+	end
+	if state.config.cleanup_max_entries > 0 and #keep > state.config.cleanup_max_entries then
+		local overflow = #keep - state.config.cleanup_max_entries
+		for i = 1, overflow do
+			archive[#archive + 1] = keep[i]
+		end
+		local new_keep = {}
+		for i = overflow + 1, #keep do
+			new_keep[#new_keep + 1] = keep[i]
+		end
+		keep = new_keep
+	end
+	if #archive > 0 then
+		local lines = {}
+		for i = 1, #archive do
+			lines[i] = json.encode(archive[i])
+		end
+		append_lines(state.config.archive_file, lines)
+	end
+	state.logs = keep
+	local lines = {}
+	for i = 1, #keep do
+		lines[i] = json.encode(keep[i])
+	end
+	write_file(state.config.log_file, table.concat(lines, "\n") .. (#lines > 0 and "\n" or ""))
 end
 
----@param uid string
+local function schedule_summary()
+	state.last_activity = time.now() // 1000
+	if state.summary_worker_running then
+		return
+	end
+	state.summary_worker_running = true
+	task.fork(function()
+		while true do
+			time.sleep(state.config.silence_seconds)
+			local now = time.now() // 1000
+			if now - state.last_activity >= state.config.silence_seconds then
+				local lock<close> = summary_lock:lock("summary")
+				if #state.unsaved > 0 then
+					append_lines(state.config.log_file, state.unsaved)
+					state.unsaved = {}
+				end
+				local rewrite = false
+				if state.config.summary_rewrite_every > 0 and state.summary_count > 0 then
+					rewrite = (state.summary_count % state.config.summary_rewrite_every == 0)
+				end
+				update_summary(rewrite)
+				state.summary_count = state.summary_count + 1
+				cleanup_logs()
+				state.summary_worker_running = false
+				return
+			end
+		end
+	end)
+end
+
+function M.init()
+	ensure_init()
+	return true
+end
+
+function M.reload_conf()
+	load_config()
+end
+
+function M.reload_logs()
+	ensure_init()
+	state.logs = {}
+	state.sessions = {}
+	state.session_meta = {}
+	state.unsaved = {}
+	local f = io.open(state.config.log_file, "r")
+	if not f then
+		return
+	end
+	for line in f:lines() do
+		if #line > 0 then
+			local ok, obj = pcall(json.decode, line)
+			if ok and obj then
+				state.logs[#state.logs + 1] = obj
+				local sid = obj.session_id or ""
+				if #sid > 0 then
+					local s = state.sessions[sid]
+					if not s then
+						s = {history = {}}
+						state.sessions[sid] = s
+					end
+					s.history[#s.history + 1] = {role = obj.role, content = obj.content}
+					local meta = state.session_meta[sid]
+					if not meta then
+						meta = {session_id = sid, count = 0, last_ts = 0}
+						state.session_meta[sid] = meta
+					end
+					meta.count = meta.count + 1
+					meta.last_ts = math.max(meta.last_ts, obj.ts or 0)
+				end
+			end
+		end
+	end
+	f:close()
+end
+
+function M.get_summary()
+	ensure_init()
+	return state.summary or ""
+end
+
+function M.set_summary(text)
+	ensure_init()
+	state.summary = text or ""
+	write_file(state.config.summary_file, state.summary)
+end
+
+---@param uid number
+---@param session_id string
 ---@return memory
-function M.new(uid)
+function M.new(uid, session_id)
+	ensure_init()
+	local sid = session_id or tostring(uid)
+	if not state.sessions[sid] then
+		state.sessions[sid] = {history = {}}
+	end
+	if not state.session_meta[sid] then
+		state.session_meta[sid] = {session_id = sid, count = 0, last_ts = 0}
+	end
 	return setmetatable({
 		uid = uid,
-		working = {},
-		compressed = {},
-		profile = user_profile[uid],
+		session_id = sid,
+		session_no = 1,
+		seq = 0,
 	}, mt)
 end
 
@@ -286,61 +435,134 @@ end
 ---@param tbl table{role: string, content: string}
 ---@param msg string
 function M:retrieve(tbl, msg)
-	-- 1. 长期记忆
-	local txt, err = retrieval(self.uid, msg)
-	if txt and #txt > 0 then
+	ensure_init()
+	local max_tokens = state.config.context_max_tokens
+	local summary = state.summary
+	local used = 0
+	if summary and #summary > 0 then
+		local sum_tokens = estimate_tokens(summary)
+		used = used + sum_tokens
 		tbl[#tbl + 1] = {
 			role = "system",
-			content = txt,
-		}
-	else
-		logger.errorf("[memory] retrieval uid:%s failed: %s", self.uid, err)
-	end
-	-- 2. 用户画像信息
-	local profile = self.profile.content
-	tbl[#tbl + 1] = {
-		role = "system",
-		content = "用户画像信息：" .. profile,
-	}
-	-- 4. 添加近期上下文（如果有）
-	local compressed = self.compressed
-	if #compressed > 0 then
-		tbl[#tbl + 1] = {
-			role = "system",
-			content = "近期上下文：" .. concat(compressed, "\n\n"),
+			content = "历史总结：\n" .. summary,
 		}
 	end
-	-- 5. 添加工作记忆
-	local working = self.working
-	for i = 1, #working do
-		tbl[#tbl + 1] = working[i]
+	local s = state.sessions[self.session_id]
+	local history = s and s.history or {}
+	local max_msgs = state.config.session_context_max_messages
+	local added = 0
+	local buf = {}
+	for i = #history, 1, -1 do
+		local item = history[i]
+		local t = estimate_tokens(item.content)
+		if used + t > max_tokens then
+			break
+		end
+		buf[#buf + 1] = item
+		used = used + t
+		added = added + 1
+		if added >= max_msgs then
+			break
+		end
 	end
-	-- 6. 添加当前问题
+	for i = #buf, 1, -1 do
+		tbl[#tbl + 1] = buf[i]
+	end
 	tbl[#tbl + 1] = {
 		role = "user",
 		content = msg,
 	}
 end
 
+local function add_entry(self, role, content)
+	local entry = {
+		ts = os.time(),
+		uid = self.uid,
+		session_id = self.session_id,
+		session_no = self.session_no,
+		seq = self.seq,
+		role = role,
+		content = content,
+	}
+	state.logs[#state.logs + 1] = entry
+	state.unsaved[#state.unsaved + 1] = json.encode(entry)
+	local s = state.sessions[self.session_id]
+	if s then
+		s.history[#s.history + 1] = {role = role, content = content}
+	end
+	local meta = state.session_meta[self.session_id]
+	if not meta then
+		meta = {session_id = self.session_id, count = 0, last_ts = 0}
+		state.session_meta[self.session_id] = meta
+	end
+	meta.count = meta.count + 1
+	meta.last_ts = math.max(meta.last_ts, entry.ts or 0)
+end
+
 function M:add(q, a)
-	logger.debugf("[memory] add uid:%s q: %s a: %s", self.uid, q, a)
-	local working = self.working
-	working[#working + 1] = {
-		role = "user",
-		content = q,
-	}
-	working[#working + 1] = {
-		role = "assistant",
-		content = a,
-	}
+	ensure_init()
+	self.seq = self.seq + 1
+	add_entry(self, "user", q)
+	self.seq = self.seq + 1
+	add_entry(self, "assistant", a)
+	schedule_summary()
 end
 
 function M:close()
-	if #self.working == 0 then
-		return
+	schedule_summary()
+end
+
+function M.list_sessions()
+	ensure_init()
+	local out = {}
+	for _, meta in pairs(state.session_meta) do
+		out[#out + 1] = {
+			session_id = meta.session_id,
+			count = meta.count,
+			last_ts = meta.last_ts,
+		}
 	end
-	save_chats(self)
-	update_profile(self)
+	table.sort(out, function(a, b)
+		return (a.last_ts or 0) > (b.last_ts or 0)
+	end)
+	return out
+end
+
+function M.get_session_history(session_id, max_messages, max_tokens)
+	ensure_init()
+	if not session_id or #session_id == 0 then
+		return {}
+	end
+	local max_msgs = max_messages or 100
+	local max_toks = max_tokens or state.config.context_max_tokens
+	local used = 0
+	local added = 0
+	local buf = {}
+	for i = #state.logs, 1, -1 do
+		local e = state.logs[i]
+		if e.session_id == session_id then
+			local t = estimate_tokens(e.content)
+			if used + t > max_toks then
+				break
+			end
+			buf[#buf + 1] = e
+			used = used + t
+			added = added + 1
+			if added >= max_msgs then
+				break
+			end
+		end
+	end
+	local out = {}
+	for i = #buf, 1, -1 do
+		local e = buf[i]
+		out[#out + 1] = {
+			ts = e.ts,
+			role = e.role,
+			content = e.content,
+		}
+	end
+	return out
 end
 
 return M

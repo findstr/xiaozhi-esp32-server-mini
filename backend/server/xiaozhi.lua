@@ -5,16 +5,26 @@ local waitgroup = require "silly.sync.waitgroup"
 local logger = require "silly.logger"
 local websocket = require "silly.net.websocket"
 local voice = require "voice.vad"
-local asr = require "asr"
-local tts = require "tts"
 local conf = require "conf"
-local intent = require "intent"
+local chat_agent = require("agent.chat").exec
 
 local ipairs = ipairs
 local concat = table.concat
 local remove = table.remove
 
 local vad_model_path = conf.vad.model_path
+local exit_patterns = {
+	"再见", "拜拜", "不聊了", "下次聊", "退出", "结束", "先走了",
+}
+
+local function is_exit(text)
+	for _, p in ipairs(exit_patterns) do
+		if text:find(p, 1, true) then
+			return true
+		end
+	end
+	return false
+end
 
 ---@alias xiaozhi.state "idle" | "listening" | "speaking" | "close"
 local STATE_IDLE = "idle"
@@ -78,6 +88,7 @@ local function asr_detect(session, dat)
 	local pcm = voice.detect_opus(voice_ctx, dat)
 	if pcm then
 		local err
+		local asr = require "asr"
 		txt, err = asr(pcm)
 		if not txt then
 			logger.errorf("[xiaozhi] asr error:`%s`", err)
@@ -172,7 +183,7 @@ end
 local function new_llm_reader(session)
 	return function()
 		local first = true
-		local tts = tts.new()
+		local tts = require("tts").new()
 		local text_cb = session.txt_cb
 		local pcm_cb = session.pcm_cb
 		local ch_llm_output = session.ch_llm_output
@@ -255,9 +266,8 @@ local function listening(session, dat, wg)
 	if not ch_llm_input then
 		ch_llm_input = channel.new()
 		session.ch_llm_input = ch_llm_input
-		local agent = intent.agent(txt)
 		wg:fork(function()
-			agent(session)
+			chat_agent(session)
 			logger.debugf("[xiaozhi] agent close")
 			ch_llm_input:close()
 			session.ch_llm_input = nil
@@ -266,8 +276,8 @@ local function listening(session, dat, wg)
 	session.state = STATE_SPEAKING
 	session.ch_llm_input:push(txt)
 	session.silence_start_time = now
-	session.need_over = intent.over(txt)
-	logger.infof("xiaozhi intent intent.over:`%s` result:%s: ", txt, session.need_over)
+	session.need_over = is_exit(txt)
+	logger.infof("xiaozhi over check:`%s` result:%s", txt, session.need_over)
 end
 
 ---@param uid number
@@ -278,9 +288,11 @@ function xsession.new(uid, sock, wg)
 	local ch_device_write = channel.new()
 	local ch_ctrl = channel.new()
 	local ch_llm_output = channel.new()
+	local session_id = string.format("%s-%d", sock.stream.remoteaddr, time.now())
 	local s = setmetatable({
 		uid = uid,
-		needover = false,
+		session_id = session_id,
+		need_over = false,
 		state = STATE_IDLE,
 		remoteaddr = sock.stream.remoteaddr,
 		voice_ctx = voice_ctx_new(),
